@@ -6,6 +6,7 @@ import { InputBuffer } from './input.js';
 import { STATES } from './animationStateMachine.js';
 import playerModelUrl from '../Models/T-Pose (4).fbx?url';
 import opponentModelUrl from '../Models/T-Pose (5).fbx?url';
+import stanceAnimUrl from '../Models/Anim/StanceAnim.fbx?url';
 import './styles.css';
 
 const canvas = document.querySelector('#game');
@@ -50,11 +51,13 @@ async function init() {
   const [playerModel, opponentModel] = await Promise.all([
     createFighterModel({
       url: playerModelUrl,
+      stanceUrl: stanceAnimUrl,
       tint: 0x51d88a,
       fallback: { body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f },
     }),
     createFighterModel({
       url: opponentModelUrl,
+      stanceUrl: stanceAnimUrl,
       tint: 0xdf4f59,
       fallback: { body: 0xdf4f59, accent: 0x241923, skin: 0xd8a07f },
     }),
@@ -80,6 +83,8 @@ function tick() {
   const time = clock.elapsedTime;
 
   game.update(delta);
+  player.model.mixer?.update(delta);
+  opponent.model.mixer?.update(delta);
   applyPose(player, time);
   applyPose(opponent, time + 0.7);
   updateCamera();

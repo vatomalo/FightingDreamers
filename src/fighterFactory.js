@@ -5,6 +5,7 @@ const loader = new FBXLoader();
 
 export async function createFighterModel({
   url,
+  stanceUrl,
   tint = 0xffffff,
   height = 2.05,
   fallback = {},
@@ -31,7 +32,16 @@ export async function createFighterModel({
   prepareModelMaterials(visual, tint);
   root.add(visual);
 
-  return { root, visual, shadow };
+  const animation = stanceUrl ? await createStanceAnimation(visual, stanceUrl) : null;
+
+  return {
+    root,
+    visual,
+    shadow,
+    mixer: animation?.mixer ?? null,
+    stanceAction: animation?.action ?? null,
+    stanceClip: animation?.clip ?? null,
+  };
 }
 
 export function createArena() {
@@ -129,4 +139,30 @@ function createFallbackFighter({ body = 0x68d391, accent = 0x1f2933, skin = 0xf2
   group.add(part(new THREE.BoxGeometry(0.24, 0.68, 0.24), accentMaterial, [0.22, 0.37, 0]));
 
   return group;
+}
+
+async function createStanceAnimation(visual, stanceUrl) {
+  try {
+    const animationSource = await loader.loadAsync(stanceUrl);
+    const sourceClip = animationSource.animations[0];
+
+    if (!sourceClip) {
+      return null;
+    }
+
+    const clip = sourceClip.clone();
+    clip.name = 'stance';
+    clip.tracks = clip.tracks.filter((track) => track.name !== 'mixamorigHips.position');
+
+    const mixer = new THREE.AnimationMixer(visual);
+    const action = mixer.clipAction(clip);
+    action.enabled = true;
+    action.setLoop(THREE.LoopRepeat);
+    action.play();
+
+    return { mixer, action, clip };
+  } catch (error) {
+    console.warn(`Could not load stance animation ${stanceUrl}.`, error);
+    return null;
+  }
 }

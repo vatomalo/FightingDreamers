@@ -51,6 +51,21 @@ async function runViewport(browser, viewport) {
   await page.locator('#game').click({ position: { x: 8, y: 8 } });
   await page.waitForTimeout(500);
 
+  const animationInfo = await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    return {
+      playerClip: game.player.model.stanceClip?.name,
+      opponentClip: game.opponent.model.stanceClip?.name,
+      playerRunning: Boolean(game.player.model.stanceAction?.isRunning()),
+      opponentRunning: Boolean(game.opponent.model.stanceAction?.isRunning()),
+      playerTrackCount: game.player.model.stanceClip?.tracks.length ?? 0,
+    };
+  });
+  assert(animationInfo.playerClip === 'stance', 'player loads stance animation');
+  assert(animationInfo.opponentClip === 'stance', 'opponent loads stance animation');
+  assert(animationInfo.playerRunning && animationInfo.opponentRunning, 'stance animation is running on both fighters');
+  assert(animationInfo.playerTrackCount > 10, 'stance animation has bone tracks');
+
   const renderStats = screenshotStats(await page.screenshot());
   assert(renderStats.ratio > 0.06, `render variation too low: ${JSON.stringify(renderStats)}`);
 
