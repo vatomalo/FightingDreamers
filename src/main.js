@@ -6,8 +6,25 @@ import { InputBuffer } from './input.js';
 import { STATES } from './animationStateMachine.js';
 import playerModelUrl from '../Models/T-Pose (4).fbx?url';
 import opponentModelUrl from '../Models/T-Pose (5).fbx?url';
-import stanceAnimUrl from '../Models/Anim/StanceAnim.fbx?url';
+import stanceDefaultUrl from '../Models/Anim/StanceAnim.fbx?url';
+import stanceSumoUrl from '../Models/Anim/stanceSumo.fbx?url';
+import stanceTwoHandUrl from '../Models/Anim/stance2hand.fbx?url';
+import stanceJeetKuneDoUrl from '../Models/Anim/stanceJeetkundo.fbx?url';
+import stanceFightUrl from '../Models/Anim/stancefight.fbx?url';
+import jabAnimUrl from '../Models/Anim/lpunch.fbx?url';
+import heavyAnimUrl from '../Models/Anim/rpunch.fbx?url';
+import kickAnimUrl from '../Models/Anim/rkick.fbx?url';
+import roundhouseAnimUrl from '../Models/Anim/lkick.fbx?url';
+import grabAnimUrl from '../Models/Anim/grabflipkick.fbx?url';
 import './styles.css';
+
+const stanceOptions = [
+  { name: 'default', url: stanceDefaultUrl, clampFinal: false },
+  { name: 'sumo', url: stanceSumoUrl, clampFinal: true },
+  { name: 'twoHand', url: stanceTwoHandUrl, clampFinal: false },
+  { name: 'jeetKuneDo', url: stanceJeetKuneDoUrl, clampFinal: false },
+  { name: 'fight', url: stanceFightUrl, clampFinal: false },
+];
 
 const canvas = document.querySelector('#game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -48,16 +65,36 @@ init();
 
 async function init() {
   hud.message.textContent = 'Loading fighters';
+  const playerStance = randomStance();
+  const opponentStance = randomStance();
   const [playerModel, opponentModel] = await Promise.all([
     createFighterModel({
       url: playerModelUrl,
-      stanceUrl: stanceAnimUrl,
+      stanceUrl: playerStance.url,
+      stanceName: playerStance.name,
+      stanceClampFinal: playerStance.clampFinal,
+      animations: {
+        jab: jabAnimUrl,
+        heavy: heavyAnimUrl,
+        kick: kickAnimUrl,
+        roundhouse: roundhouseAnimUrl,
+        grab: grabAnimUrl,
+      },
       tint: 0x51d88a,
       fallback: { body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f },
     }),
     createFighterModel({
       url: opponentModelUrl,
-      stanceUrl: stanceAnimUrl,
+      stanceUrl: opponentStance.url,
+      stanceName: opponentStance.name,
+      stanceClampFinal: opponentStance.clampFinal,
+      animations: {
+        jab: jabAnimUrl,
+        heavy: heavyAnimUrl,
+        kick: kickAnimUrl,
+        roundhouse: roundhouseAnimUrl,
+        grab: grabAnimUrl,
+      },
       tint: 0xdf4f59,
       fallback: { body: 0xdf4f59, accent: 0x241923, skin: 0xd8a07f },
     }),
@@ -72,6 +109,10 @@ async function init() {
   window.__FIGHTING_DREAMERS__ = {
     game,
     snapshot: () => game.snapshot(),
+    syncAnimations: () => {
+      updateAnimationAction(player);
+      updateAnimationAction(opponent);
+    },
   };
 
   clock.start();
@@ -83,6 +124,8 @@ function tick() {
   const time = clock.elapsedTime;
 
   game.update(delta);
+  updateAnimationAction(player);
+  updateAnimationAction(opponent);
   player.model.mixer?.update(delta);
   opponent.model.mixer?.update(delta);
   applyPose(player, time);
@@ -132,6 +175,11 @@ function applyPose(combatant, time) {
     case STATES.JAB:
       model.visual.rotation.z = -0.08 * facing;
       model.root.position.x += Math.sin(state.progress * Math.PI) * 0.12 * facing;
+      break;
+    case STATES.KICK:
+      model.visual.rotation.z = -0.18 * facing;
+      model.visual.position.z += Math.sin(state.progress * Math.PI) * 0.08;
+      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.1 * facing;
       break;
     case STATES.HEAVY:
       model.visual.rotation.z = -0.24 * facing;
@@ -207,7 +255,7 @@ function createHud() {
     <div class="center-message" data-message></div>
     <div class="event-log" data-events></div>
     <div class="controls">
-      <span>A/D: move</span><span>S: crouch</span><span>L: block</span><span>J: jab</span><span>I: roundhouse</span><span>U: heavy</span><span>O: grab/break</span><span>R: reset</span>
+      <span>A/D: move</span><span>S: crouch</span><span>L: block</span><span>J: jab</span><span>K: kick</span><span>I: roundhouse</span><span>U: heavy</span><span>O: grab/break</span><span>R: reset</span>
     </div>
   `;
   document.body.append(root);
@@ -247,3 +295,54 @@ function resize() {
 
 window.addEventListener('resize', resize);
 resize();
+
+function randomStance() {
+  return stanceOptions[Math.floor(Math.random() * stanceOptions.length)];
+}
+
+function updateAnimationAction(combatant) {
+  const model = combatant.model;
+  const desiredAction = combatant.state.attack?.animation ?? null;
+
+  if (model.currentActionName === desiredAction) {
+    return;
+  }
+
+  if (model.currentActionName) {
+    model.actions[model.currentActionName]?.action.fadeOut(0.08);
+  }
+
+  model.currentActionName = desiredAction;
+
+  if (desiredAction) {
+    const action = model.actions[desiredAction]?.action;
+    const clip = model.actions[desiredAction]?.clip;
+
+    if (action && clip) {
+      model.stanceAction?.fadeOut(0.06);
+      action.timeScale = clip.duration / Math.max(combatant.state.duration, 0.001);
+      action.reset().fadeIn(0.04).play();
+    }
+  } else {
+    holdStanceFinalFrame(model);
+  }
+}
+
+function holdStanceFinalFrame(model) {
+  const action = model.stanceAction;
+  const clip = model.stanceClip;
+
+  if (!action || !clip) {
+    return;
+  }
+
+  action.enabled = true;
+  action.paused = Boolean(model.stanceClampFinal);
+
+  if (model.stanceClampFinal) {
+    action.time = clip.duration;
+  }
+
+  action.setEffectiveWeight(1);
+  action.play();
+}

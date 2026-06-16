@@ -49,22 +49,60 @@ async function runViewport(browser, viewport) {
   await page.goto(BASE_URL, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => Boolean(window.__FIGHTING_DREAMERS__));
   await page.locator('#game').click({ position: { x: 8, y: 8 } });
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(3000);
 
   const animationInfo = await page.evaluate(() => {
     const { game } = window.__FIGHTING_DREAMERS__;
     return {
       playerClip: game.player.model.stanceClip?.name,
       opponentClip: game.opponent.model.stanceClip?.name,
-      playerRunning: Boolean(game.player.model.stanceAction?.isRunning()),
-      opponentRunning: Boolean(game.opponent.model.stanceAction?.isRunning()),
+      playerStanceName: game.player.model.stanceName,
+      opponentStanceName: game.opponent.model.stanceName,
+      playerClampFinal: game.player.model.stanceClampFinal,
+      opponentClampFinal: game.opponent.model.stanceClampFinal,
+      playerClamp: Boolean(game.player.model.stanceAction?.clampWhenFinished),
+      opponentClamp: Boolean(game.opponent.model.stanceAction?.clampWhenFinished),
+      playerLoop: game.player.model.stanceAction?.loop,
+      opponentLoop: game.opponent.model.stanceAction?.loop,
+      playerTime: game.player.model.stanceAction?.time ?? 0,
+      opponentTime: game.opponent.model.stanceAction?.time ?? 0,
+      playerDuration: game.player.model.stanceClip?.duration ?? 0,
+      opponentDuration: game.opponent.model.stanceClip?.duration ?? 0,
       playerTrackCount: game.player.model.stanceClip?.tracks.length ?? 0,
+      actionTrackCounts: Object.fromEntries(
+        ['jab', 'heavy', 'kick', 'roundhouse', 'grab'].map((key) => [
+          key,
+          game.player.model.actions[key]?.clip.tracks.length ?? 0,
+        ]),
+      ),
     };
   });
   assert(animationInfo.playerClip === 'stance', 'player loads stance animation');
   assert(animationInfo.opponentClip === 'stance', 'opponent loads stance animation');
-  assert(animationInfo.playerRunning && animationInfo.opponentRunning, 'stance animation is running on both fighters');
+  assert(animationInfo.playerClampFinal === (animationInfo.playerStanceName === 'sumo'), 'only player sumo stance clamps');
+  assert(animationInfo.opponentClampFinal === (animationInfo.opponentStanceName === 'sumo'), 'only opponent sumo stance clamps');
+  assert(animationInfo.playerClamp === animationInfo.playerClampFinal, 'player stance clamp flag matches action');
+  assert(animationInfo.opponentClamp === animationInfo.opponentClampFinal, 'opponent stance clamp flag matches action');
+  assert(
+    animationInfo.playerLoop === (animationInfo.playerClampFinal ? 2200 : 2201),
+    'player stance loop mode matches stance type',
+  );
+  assert(
+    animationInfo.opponentLoop === (animationInfo.opponentClampFinal ? 2200 : 2201),
+    'opponent stance loop mode matches stance type',
+  );
+  if (animationInfo.playerClampFinal) {
+    assert(animationInfo.playerTime >= animationInfo.playerDuration - 0.05, 'player sumo stance holds final frame');
+  }
+  if (animationInfo.opponentClampFinal) {
+    assert(animationInfo.opponentTime >= animationInfo.opponentDuration - 0.05, 'opponent sumo stance holds final frame');
+  }
+  assert(animationInfo.playerTime <= animationInfo.playerDuration, 'stance animation does not advance beyond its clip duration');
+  assert(animationInfo.opponentTime <= animationInfo.opponentDuration, 'opponent stance animation does not advance beyond its clip duration');
   assert(animationInfo.playerTrackCount > 10, 'stance animation has bone tracks');
+  for (const [key, trackCount] of Object.entries(animationInfo.actionTrackCounts)) {
+    assert(trackCount > 10, `${key} animation has bone tracks`);
+  }
 
   const renderStats = screenshotStats(await page.screenshot());
   assert(renderStats.ratio > 0.06, `render variation too low: ${JSON.stringify(renderStats)}`);
@@ -105,27 +143,42 @@ async function runViewport(browser, viewport) {
   await hold(page, 'KeyD', 1050);
   await page.keyboard.press('KeyJ');
   await page.waitForTimeout(420);
+  await page.keyboard.press('KeyK');
+  await page.waitForTimeout(520);
   await page.keyboard.press('KeyI');
   await page.waitForTimeout(580);
   await page.keyboard.press('KeyU');
   await page.waitForTimeout(900);
 
-  await page.evaluate(() => {
+  await page.keyboard.press('KeyR');
+  await page.waitForTimeout(80);
+  const attacksBeforeKickCheck = await page.evaluate(() => window.__FIGHTING_DREAMERS__.snapshot().debug.playerAttacks);
+  const kickStart = await page.evaluate(() => {
     const { game } = window.__FIGHTING_DREAMERS__;
     game.player.position.x = -0.45;
     game.opponent.position.x = 0.45;
     game.opponent.ai.attackCooldown = 99;
-    game.input.pressed.add('KeyJ');
+    game.input.pressed.add('KeyK');
     game.update(1 / 60);
     game.input.pressed.clear();
-    for (let i = 0; i < 18; i++) {
+    window.__FIGHTING_DREAMERS__.syncAnimations();
+    return {
+      state: game.player.state.state,
+      actionRunning: Boolean(game.player.model.actions.kick?.action.isRunning()),
+    };
+  });
+  await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    for (let i = 0; i < 26; i++) {
       game.update(1 / 60);
     }
   });
 
   const afterCombo = await snapshot(page);
   assert(afterCombo.player.x > initial.player.x, 'player can walk forward');
-  assert(afterCombo.debug.playerAttacks >= 2, 'player attacks are counted');
+  assert(afterCombo.debug.playerAttacks > attacksBeforeKickCheck, 'kick is counted as a player attack');
+  assert(kickStart.state === 'kick', 'K enters the kick state');
+  assert(kickStart.actionRunning, 'kick animation action starts');
   assert(afterCombo.opponent.health < 100 || afterCombo.debug.blocked > 0, 'player attacks interact with opponent');
 
   await page.keyboard.press('KeyR');

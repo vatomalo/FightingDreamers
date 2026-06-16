@@ -2,7 +2,7 @@
 
 Quick Three.js prototype for a KOF/Tekken-inspired 2.5D fighting game loop with a playable character, autonomous CPU opponent, hit detection, blocking, health, rounds, and a browser playability check.
 
-The fighters use the FBX character models in `Models/` and share the ready stance animation in `Models/Anim/StanceAnim.fbx`.
+The fighters use the FBX character models in `Models/`, randomly choose a ready stance from `Models/Anim`, hold that stance on its final frame, and use action clips such as `rkick.fbx` and `grabflipkick.fbx` for attacks.
 
 ## Run
 
@@ -19,6 +19,7 @@ Open `http://127.0.0.1:5173`.
 - `S`: crouch
 - `L`: block
 - `J`: jab
+- `K`: kick
 - `I`: roundhouse
 - `U`: heavy attack
 - `O`: grab / throw break
@@ -39,5 +40,5 @@ The test drives Chromium at desktop and mobile sizes and checks rendering, appro
 - `src/animationStateMachine.js`: animation/combat states and attack timing windows
 - `src/aiController.js`: deterministic autonomous CPU decision loop
 - `src/combat.js`: health, movement, spacing, hit/block/throw resolution, rounds
-- `src/fighterFactory.js`: FBX fighter loading, stance animation setup, and arena
+- `src/fighterFactory.js`: FBX fighter loading, stance/action animation setup, and arena
 - `src/main.js`: scene setup, pose driver, camera, HUD

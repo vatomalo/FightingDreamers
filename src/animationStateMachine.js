@@ -5,6 +5,7 @@ export const STATES = {
   CROUCH: 'crouch',
   BLOCK: 'block',
   JAB: 'jab',
+  KICK: 'kick',
   HEAVY: 'heavy',
   ROUNDHOUSE: 'roundhouse',
   GRAB: 'grab',
@@ -19,16 +20,17 @@ const STATE_CONFIG = {
   [STATES.WALK_BACK]: { duration: Infinity, canMove: true },
   [STATES.CROUCH]: { duration: Infinity, canMove: false },
   [STATES.BLOCK]: { duration: Infinity, canMove: false },
-  [STATES.JAB]: { duration: 0.28, canMove: false, cancelAfter: 0.18, activeFrom: 0.08, activeTo: 0.16, damage: 7, chip: 1, range: 0.92, knockback: 0.18, hitstun: 0.24 },
-  [STATES.HEAVY]: { duration: 0.58, canMove: false, cancelAfter: 0.46, activeFrom: 0.18, activeTo: 0.31, damage: 16, chip: 4, range: 1.16, knockback: 0.42, hitstun: 0.38 },
-  [STATES.ROUNDHOUSE]: { duration: 0.48, canMove: false, cancelAfter: 0.42, activeFrom: 0.14, activeTo: 0.26, damage: 12, chip: 2, range: 1.34, knockback: 0.34, hitstun: 0.32 },
-  [STATES.GRAB]: { duration: 0.62, canMove: false, cancelAfter: 0.52, activeFrom: 0.09, activeTo: 0.22, damage: 18, chip: 0, range: 0.74, knockback: 0.24, hitstun: 0.42, rootMotion: true },
+  [STATES.JAB]: { duration: 0.4, canMove: false, cancelAfter: 0.2, activeFrom: 0.1, activeTo: 0.2, damage: 7, chip: 1, range: 0.92, knockback: 0.18, hitstun: 0.24, animation: 'jab' },
+  [STATES.KICK]: { duration: 0.62, canMove: false, cancelAfter: 0.42, activeFrom: 0.18, activeTo: 0.34, damage: 10, chip: 2, range: 1.12, knockback: 0.3, hitstun: 0.3, animation: 'kick' },
+  [STATES.HEAVY]: { duration: 0.68, canMove: false, cancelAfter: 0.5, activeFrom: 0.22, activeTo: 0.38, damage: 16, chip: 4, range: 1.16, knockback: 0.42, hitstun: 0.38, animation: 'heavy' },
+  [STATES.ROUNDHOUSE]: { duration: 0.72, canMove: false, cancelAfter: 0.52, activeFrom: 0.2, activeTo: 0.4, damage: 12, chip: 2, range: 1.34, knockback: 0.34, hitstun: 0.32, animation: 'roundhouse' },
+  [STATES.GRAB]: { duration: 0.8, canMove: false, cancelAfter: 0.58, activeFrom: 0.12, activeTo: 0.28, damage: 18, chip: 0, range: 0.74, knockback: 0.24, hitstun: 0.42, rootMotion: true, animation: 'grab' },
   [STATES.GRABBED]: { duration: 0.72, canMove: false },
   [STATES.HITSTUN]: { duration: 0.34, canMove: false },
   [STATES.KNOCKDOWN]: { duration: 0.82, canMove: false },
 };
 
-const ATTACKS = new Set([STATES.JAB, STATES.HEAVY, STATES.ROUNDHOUSE, STATES.GRAB]);
+const ATTACKS = new Set([STATES.JAB, STATES.KICK, STATES.HEAVY, STATES.ROUNDHOUSE, STATES.GRAB]);
 const LOCKED = new Set([STATES.HITSTUN, STATES.KNOCKDOWN, STATES.GRABBED]);
 
 export class AnimationStateMachine {
@@ -60,6 +62,8 @@ export class AnimationStateMachine {
 
     if (input.wasPressed('KeyJ')) {
       this.transition(STATES.JAB);
+    } else if (input.wasPressed('KeyK')) {
+      this.transition(STATES.KICK);
     } else if (input.wasPressed('KeyO')) {
       this.transition(STATES.GRAB);
     } else if (input.wasPressed('KeyU')) {
@@ -123,6 +127,9 @@ export class AnimationStateMachine {
     } else if (input.wasPressed('KeyU')) {
       this.comboStep = 0;
       this.transition(STATES.HEAVY);
+    } else if (input.wasPressed('KeyK')) {
+      this.comboStep = 0;
+      this.transition(STATES.KICK);
     } else if (input.wasPressed('KeyI')) {
       this.comboStep = 0;
       this.transition(STATES.ROUNDHOUSE);
@@ -171,6 +178,7 @@ export class AnimationStateMachine {
       progress,
       comboStep: this.comboStep,
       canMove: STATE_CONFIG[this.state].canMove,
+      duration: this.duration,
       attack: this.attack,
       isAttackActive: this.isAttackActive,
       hitResolved: this.hitResolved,

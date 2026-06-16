@@ -73,9 +73,12 @@ export class AiController {
     } else if (distance > 1.02) {
       this.intent.press('KeyI');
       this.attackCooldown = 0.9;
-    } else if (this.random() < 0.68) {
+    } else if (this.random() < 0.46) {
       this.intent.press('KeyJ');
       this.attackCooldown = 0.64;
+    } else if (this.random() < 0.62) {
+      this.intent.press('KeyK');
+      this.attackCooldown = 0.82;
     } else {
       this.intent.press('KeyU');
       this.attackCooldown = 1.05;

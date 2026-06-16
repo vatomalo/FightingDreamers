@@ -6,6 +6,9 @@ const loader = new FBXLoader();
 export async function createFighterModel({
   url,
   stanceUrl,
+  stanceName = 'stance',
+  stanceClampFinal = false,
+  animations = {},
   tint = 0xffffff,
   height = 2.05,
   fallback = {},
@@ -32,7 +35,8 @@ export async function createFighterModel({
   prepareModelMaterials(visual, tint);
   root.add(visual);
 
-  const animation = stanceUrl ? await createStanceAnimation(visual, stanceUrl) : null;
+  const animation = stanceUrl ? await createStanceAnimation(visual, stanceUrl, stanceName, stanceClampFinal) : null;
+  const actions = animation ? await createActionAnimations(animation.mixer, animations) : {};
 
   return {
     root,
@@ -41,6 +45,9 @@ export async function createFighterModel({
     mixer: animation?.mixer ?? null,
     stanceAction: animation?.action ?? null,
     stanceClip: animation?.clip ?? null,
+    stanceName: animation?.stanceName ?? null,
+    stanceClampFinal: animation?.clampFinal ?? false,
+    actions,
   };
 }
 
@@ -141,7 +148,7 @@ function createFallbackFighter({ body = 0x68d391, accent = 0x1f2933, skin = 0xf2
   return group;
 }
 
-async function createStanceAnimation(visual, stanceUrl) {
+async function createStanceAnimation(visual, stanceUrl, stanceName, clampFinal) {
   try {
     const animationSource = await loader.loadAsync(stanceUrl);
     const sourceClip = animationSource.animations[0];
@@ -157,12 +164,48 @@ async function createStanceAnimation(visual, stanceUrl) {
     const mixer = new THREE.AnimationMixer(visual);
     const action = mixer.clipAction(clip);
     action.enabled = true;
-    action.setLoop(THREE.LoopRepeat);
+    action.clampWhenFinished = clampFinal;
+
+    if (clampFinal) {
+      action.setLoop(THREE.LoopOnce, 1);
+    } else {
+      action.setLoop(THREE.LoopRepeat);
+    }
+
     action.play();
 
-    return { mixer, action, clip };
+    return { mixer, action, clip, stanceName, clampFinal };
   } catch (error) {
     console.warn(`Could not load stance animation ${stanceUrl}.`, error);
     return null;
   }
+}
+
+async function createActionAnimations(mixer, animations) {
+  const actions = {};
+
+  for (const [name, url] of Object.entries(animations)) {
+    try {
+      const animationSource = await loader.loadAsync(url);
+      const sourceClip = animationSource.animations[0];
+
+      if (!sourceClip) {
+        continue;
+      }
+
+      const clip = sourceClip.clone();
+      clip.name = name;
+      clip.tracks = clip.tracks.filter((track) => track.name !== 'mixamorigHips.position');
+
+      const action = mixer.clipAction(clip);
+      action.enabled = true;
+      action.clampWhenFinished = false;
+      action.setLoop(THREE.LoopOnce, 1);
+      actions[name] = { action, clip };
+    } catch (error) {
+      console.warn(`Could not load action animation ${url}.`, error);
+    }
+  }
+
+  return actions;
 }
