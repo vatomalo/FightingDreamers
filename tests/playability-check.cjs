@@ -113,11 +113,34 @@ async function runViewport(browser, viewport) {
   assert(afterCombo.debug.playerAttacks >= 2, 'player attacks are counted');
   assert(afterCombo.opponent.health < 100 || afterCombo.debug.blocked > 0, 'player attacks interact with opponent');
 
+  await page.keyboard.press('KeyR');
+  await page.waitForTimeout(80);
   await page.evaluate(() => {
     const { game } = window.__FIGHTING_DREAMERS__;
-    game.opponent.ai.attackCooldown = 0;
+    game.player.position.x = -0.42;
+    game.opponent.position.x = 0.42;
+    game.opponent.ai.attackCooldown = 99;
+    game.input.pressed.add('KeyO');
+    game.update(1 / 60);
+    game.input.pressed.clear();
+    for (let i = 0; i < 54; i++) {
+      game.update(1 / 60);
+    }
   });
-  await page.waitForTimeout(4500);
+  const afterGrab = await snapshot(page);
+  assert(afterGrab.debug.throws >= 1, 'grab starts a throw');
+  assert(afterGrab.debug.hits >= 1, 'throw applies damage through combat resolver');
+  assert(afterGrab.opponent.health <= 82, `throw should deal root-motion grab damage, health was ${afterGrab.opponent.health}`);
+  assert(afterGrab.opponent.x > 0.85, `throw root motion should move defender, x was ${afterGrab.opponent.x}`);
+
+  await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.resetRound();
+    game.opponent.ai.attackCooldown = 0;
+    for (let i = 0; i < 360; i++) {
+      game.update(1 / 60);
+    }
+  });
   const afterAi = await snapshot(page);
   assert(afterAi.debug.opponentAttacks > 0, 'autonomous opponent attacks');
   assert(afterAi.debug.hits + afterAi.debug.blocked > 0, 'combat produces hits or blocks');
@@ -135,6 +158,7 @@ async function runViewport(browser, viewport) {
     afterBlock,
     afterReset,
     afterCombo,
+    afterGrab,
     afterAi,
   };
 }

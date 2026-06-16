@@ -138,6 +138,15 @@ function applyPose(combatant, time) {
       model.visual.position.z = Math.sin(state.progress * Math.PI) * 0.08;
       model.root.position.x += Math.sin(state.progress * Math.PI) * 0.08 * facing;
       break;
+    case STATES.GRAB:
+      model.visual.rotation.z = -0.2 * facing;
+      model.visual.position.z += Math.sin(state.progress * Math.PI) * 0.12;
+      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.08 * facing;
+      break;
+    case STATES.GRABBED:
+      model.visual.rotation.z = 0.28 * -facing;
+      model.visual.position.z -= Math.sin(state.progress * Math.PI) * 0.1;
+      break;
     case STATES.HITSTUN:
       model.root.rotation.z = 0.16 * -facing;
       model.visual.rotation.z = 0.18 * -facing;
@@ -193,7 +202,7 @@ function createHud() {
     <div class="center-message" data-message></div>
     <div class="event-log" data-events></div>
     <div class="controls">
-      <span>A/D: move</span><span>S: crouch</span><span>L: block</span><span>J: jab</span><span>I: roundhouse</span><span>U: heavy</span><span>R: reset</span>
+      <span>A/D: move</span><span>S: crouch</span><span>L: block</span><span>J: jab</span><span>I: roundhouse</span><span>U: heavy</span><span>O: grab/break</span><span>R: reset</span>
     </div>
   `;
   document.body.append(root);
@@ -216,8 +225,8 @@ function updateHud(snapshot) {
   hud.opponentHealth.style.transform = `scaleX(${snapshot.opponent.health / 100})`;
   hud.playerState.textContent = snapshot.player.state;
   hud.opponentState.textContent = snapshot.opponent.state;
-  hud.playerRounds.textContent = '●'.repeat(snapshot.player.rounds);
-  hud.opponentRounds.textContent = '●'.repeat(snapshot.opponent.rounds);
+  hud.playerRounds.textContent = '*'.repeat(snapshot.player.rounds);
+  hud.opponentRounds.textContent = '*'.repeat(snapshot.opponent.rounds);
   hud.timer.textContent = snapshot.roundTime;
   hud.message.textContent = snapshot.message;
   hud.events.innerHTML = snapshot.events.map((event) => `<span>${event}</span>`).join('');

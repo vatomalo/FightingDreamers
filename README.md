@@ -19,6 +19,7 @@ Open `http://127.0.0.1:5173`.
 - `J`: jab
 - `I`: roundhouse
 - `U`: heavy attack
+- `O`: grab / throw break
 - `R`: reset round
 
 ## Test
@@ -29,12 +30,12 @@ Start the dev server, then run:
 npm run test:playability
 ```
 
-The test drives Chromium at desktop and mobile sizes and checks rendering, approach behavior, blocking, reset, player attacks, CPU attacks, hit/block events, health changes, spacing, bounds, timer progress, and browser errors.
+The test drives Chromium at desktop and mobile sizes and checks rendering, approach behavior, blocking, reset, player attacks, CPU attacks, grab root motion, hit/block/throw events, health changes, spacing, bounds, timer progress, and browser errors.
 
 ## Code Map
 
 - `src/animationStateMachine.js`: animation/combat states and attack timing windows
 - `src/aiController.js`: deterministic autonomous CPU decision loop
-- `src/combat.js`: health, movement, spacing, hit/block resolution, rounds
-- `src/fighterFactory.js`: procedural Three.js fighters and arena
+- `src/combat.js`: health, movement, spacing, hit/block/throw resolution, rounds
+- `src/fighterFactory.js`: FBX fighter loading and arena
 - `src/main.js`: scene setup, pose driver, camera, HUD

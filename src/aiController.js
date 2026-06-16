@@ -35,7 +35,13 @@ export class AiController {
       return this.intent;
     }
 
-    if (self.state.state === 'hitstun' || self.state.state === 'knockdown') {
+    if (self.state.state === 'hitstun' || self.state.state === 'knockdown' || self.state.state === 'grabbed') {
+      return this.intent;
+    }
+
+    if (opponent.state.state === 'grab' && distance < 0.82 && this.random() < 0.28) {
+      this.intent.press('KeyO');
+      this.attackCooldown = 0.5;
       return this.intent;
     }
 
@@ -61,7 +67,10 @@ export class AiController {
   }
 
   chooseAttack(distance) {
-    if (distance > 1.02) {
+    if (distance < 0.72 && this.random() < 0.34) {
+      this.intent.press('KeyO');
+      this.attackCooldown = 1.2;
+    } else if (distance > 1.02) {
       this.intent.press('KeyI');
       this.attackCooldown = 0.9;
     } else if (this.random() < 0.68) {
