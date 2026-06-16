@@ -6,6 +6,7 @@ export const STATES = {
   BLOCK: 'block',
   JAB: 'jab',
   HEAVY: 'heavy',
+  ROUNDHOUSE: 'roundhouse',
   HITSTUN: 'hitstun',
   KNOCKDOWN: 'knockdown',
 };
@@ -16,13 +17,14 @@ const STATE_CONFIG = {
   [STATES.WALK_BACK]: { duration: Infinity, canMove: true },
   [STATES.CROUCH]: { duration: Infinity, canMove: false },
   [STATES.BLOCK]: { duration: Infinity, canMove: false },
-  [STATES.JAB]: { duration: 0.28, canMove: false, cancelAfter: 0.18 },
-  [STATES.HEAVY]: { duration: 0.58, canMove: false, cancelAfter: 0.46 },
+  [STATES.JAB]: { duration: 0.28, canMove: false, cancelAfter: 0.18, activeFrom: 0.08, activeTo: 0.16, damage: 7, chip: 1, range: 0.92, knockback: 0.18, hitstun: 0.24 },
+  [STATES.HEAVY]: { duration: 0.58, canMove: false, cancelAfter: 0.46, activeFrom: 0.18, activeTo: 0.31, damage: 16, chip: 4, range: 1.16, knockback: 0.42, hitstun: 0.38 },
+  [STATES.ROUNDHOUSE]: { duration: 0.48, canMove: false, cancelAfter: 0.42, activeFrom: 0.14, activeTo: 0.26, damage: 12, chip: 2, range: 1.34, knockback: 0.34, hitstun: 0.32 },
   [STATES.HITSTUN]: { duration: 0.34, canMove: false },
   [STATES.KNOCKDOWN]: { duration: 0.82, canMove: false },
 };
 
-const ATTACKS = new Set([STATES.JAB, STATES.HEAVY]);
+const ATTACKS = new Set([STATES.JAB, STATES.HEAVY, STATES.ROUNDHOUSE]);
 const LOCKED = new Set([STATES.HITSTUN, STATES.KNOCKDOWN]);
 
 export class AnimationStateMachine {
@@ -31,20 +33,12 @@ export class AnimationStateMachine {
     this.previousState = STATES.IDLE;
     this.elapsed = 0;
     this.comboStep = 0;
+    this.hitResolved = false;
+    this.overrideDuration = null;
   }
 
   update(delta, input) {
     this.elapsed += delta;
-
-    if (input.wasPressed('KeyH')) {
-      this.transition(STATES.HITSTUN);
-      return this.snapshot();
-    }
-
-    if (input.wasPressed('KeyK')) {
-      this.transition(STATES.KNOCKDOWN);
-      return this.snapshot();
-    }
 
     if (this.isTimedStateComplete()) {
       this.transition(this.readLocomotion(input));
@@ -64,6 +58,8 @@ export class AnimationStateMachine {
       this.transition(STATES.JAB);
     } else if (input.wasPressed('KeyU')) {
       this.transition(STATES.HEAVY);
+    } else if (input.wasPressed('KeyI')) {
+      this.transition(STATES.ROUNDHOUSE);
     } else {
       this.transition(this.readLocomotion(input));
     }
@@ -71,7 +67,7 @@ export class AnimationStateMachine {
     return this.snapshot();
   }
 
-  transition(nextState) {
+  transition(nextState, options = {}) {
     if (nextState === this.state) {
       return;
     }
@@ -79,6 +75,8 @@ export class AnimationStateMachine {
     this.previousState = this.state;
     this.state = nextState;
     this.elapsed = 0;
+    this.hitResolved = false;
+    this.overrideDuration = options.duration ?? null;
 
     if (!ATTACKS.has(nextState)) {
       this.comboStep = 0;
@@ -119,21 +117,50 @@ export class AnimationStateMachine {
     } else if (input.wasPressed('KeyU')) {
       this.comboStep = 0;
       this.transition(STATES.HEAVY);
+    } else if (input.wasPressed('KeyI')) {
+      this.comboStep = 0;
+      this.transition(STATES.ROUNDHOUSE);
     }
   }
 
   isTimedStateComplete() {
-    return this.elapsed >= STATE_CONFIG[this.state].duration;
+    return this.elapsed >= this.duration;
+  }
+
+  receiveHit(duration = STATE_CONFIG[STATES.HITSTUN].duration) {
+    this.transition(STATES.HITSTUN, { duration });
+  }
+
+  knockDown() {
+    this.transition(STATES.KNOCKDOWN);
+  }
+
+  get duration() {
+    return this.overrideDuration ?? STATE_CONFIG[this.state].duration;
+  }
+
+  get attack() {
+    return ATTACKS.has(this.state) ? STATE_CONFIG[this.state] : null;
+  }
+
+  get isAttackActive() {
+    const attack = this.attack;
+    return Boolean(attack && this.elapsed >= attack.activeFrom && this.elapsed <= attack.activeTo);
   }
 
   snapshot() {
+    const progress = this.duration === Infinity ? 0 : Math.min(this.elapsed / this.duration, 1);
+
     return {
       state: this.state,
       previousState: this.previousState,
       elapsed: this.elapsed,
-      progress: Math.min(this.elapsed / STATE_CONFIG[this.state].duration, 1),
+      progress,
       comboStep: this.comboStep,
       canMove: STATE_CONFIG[this.state].canMove,
+      attack: this.attack,
+      isAttackActive: this.isAttackActive,
+      hitResolved: this.hitResolved,
     };
   }
 }
