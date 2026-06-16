@@ -11,6 +11,7 @@ import stanceSumoUrl from '../Models/Anim/stanceSumo.fbx?url';
 import stanceTwoHandUrl from '../Models/Anim/stance2hand.fbx?url';
 import stanceJeetKuneDoUrl from '../Models/Anim/stanceJeetkundo.fbx?url';
 import stanceFightUrl from '../Models/Anim/stancefight.fbx?url';
+import stanceCapoeiraUrl from '../Models/Anim/stancecapoeira.fbx?url';
 import jabAnimUrl from '../Models/Anim/lpunch.fbx?url';
 import heavyAnimUrl from '../Models/Anim/rpunch.fbx?url';
 import kickAnimUrl from '../Models/Anim/rkick.fbx?url';
@@ -24,6 +25,7 @@ const stanceOptions = [
   { name: 'twoHand', url: stanceTwoHandUrl, clampFinal: false },
   { name: 'jeetKuneDo', url: stanceJeetKuneDoUrl, clampFinal: false },
   { name: 'fight', url: stanceFightUrl, clampFinal: false },
+  { name: 'capoeira', url: stanceCapoeiraUrl, clampFinal: false },
 ];
 
 const canvas = document.querySelector('#game');
