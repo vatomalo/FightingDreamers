@@ -1,30 +1,37 @@
 import * as THREE from 'three';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
-export function createFighterModel({ body = 0x68d391, accent = 0x1f2933, skin = 0xf2c4a7 } = {}) {
+const loader = new FBXLoader();
+
+export async function createFighterModel({
+  url,
+  tint = 0xffffff,
+  height = 2.05,
+  fallback = {},
+} = {}) {
   const root = new THREE.Group();
-  const bodyMaterial = new THREE.MeshStandardMaterial({ color: body, roughness: 0.45, metalness: 0.04 });
-  const accentMaterial = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.62 });
-  const skinMaterial = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.55 });
-
   const shadow = part(
     new THREE.CylinderGeometry(0.55, 0.72, 0.02, 32),
     new THREE.MeshBasicMaterial({ color: 0x05070a, transparent: true, opacity: 0.35 }),
     [0, 0.012, 0],
   );
   shadow.scale.z = 0.48;
+  root.add(shadow);
 
-  const torso = part(new THREE.BoxGeometry(0.72, 1.0, 0.32), bodyMaterial, [0, 1.25, 0]);
-  const head = part(new THREE.SphereGeometry(0.25, 24, 16), skinMaterial, [0, 1.95, 0]);
-  const hip = part(new THREE.BoxGeometry(0.62, 0.28, 0.34), accentMaterial, [0, 0.72, 0]);
+  let visual;
 
-  const leftArm = limb(bodyMaterial, [-0.52, 1.45, 0], 0.22, 0.72);
-  const rightArm = limb(bodyMaterial, [0.52, 1.45, 0], 0.22, 0.72);
-  const leftLeg = limb(accentMaterial, [-0.22, 0.37, 0], 0.24, 0.68);
-  const rightLeg = limb(accentMaterial, [0.22, 0.37, 0], 0.24, 0.68);
+  try {
+    visual = await loader.loadAsync(url);
+  } catch (error) {
+    console.warn(`Could not load ${url}; using fallback fighter.`, error);
+    visual = createFallbackFighter(fallback);
+  }
 
-  root.add(shadow, torso, head, hip, leftArm, rightArm, leftLeg, rightLeg);
+  normalizeModel(visual, height);
+  prepareModelMaterials(visual, tint);
+  root.add(visual);
 
-  return { root, shadow, torso, head, hip, leftArm, rightArm, leftLeg, rightLeg };
+  return { root, visual, shadow };
 }
 
 export function createArena() {
@@ -61,13 +68,65 @@ export function createArena() {
   return group;
 }
 
-function limb(material, position, width, height) {
-  return part(new THREE.BoxGeometry(width, height, width), material, position);
-}
-
 function part(geometry, material, position) {
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.set(...position);
   mesh.castShadow = true;
   return mesh;
+}
+
+function normalizeModel(model, targetHeight) {
+  model.updateWorldMatrix(true, true);
+  const box = new THREE.Box3().setFromObject(model);
+  const size = new THREE.Vector3();
+  const center = new THREE.Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  const scale = targetHeight / Math.max(size.y, 0.001);
+  model.scale.multiplyScalar(scale);
+  model.position.sub(center.multiplyScalar(scale));
+  model.position.y += (size.y * scale) / 2;
+  model.userData.baseScale = model.scale.clone();
+  model.userData.basePosition = model.position.clone();
+}
+
+function prepareModelMaterials(model, tint) {
+  model.traverse((child) => {
+    if (!child.isMesh) {
+      return;
+    }
+
+    child.castShadow = true;
+    child.receiveShadow = true;
+
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of materials) {
+      if (!material) {
+        continue;
+      }
+
+      material.side = THREE.FrontSide;
+      material.color?.lerp(new THREE.Color(tint), 0.08);
+      material.emissive?.set(0x000000);
+      material.needsUpdate = true;
+    }
+  });
+}
+
+function createFallbackFighter({ body = 0x68d391, accent = 0x1f2933, skin = 0xf2c4a7 } = {}) {
+  const group = new THREE.Group();
+  const bodyMaterial = new THREE.MeshStandardMaterial({ color: body, roughness: 0.45, metalness: 0.04 });
+  const accentMaterial = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.62 });
+  const skinMaterial = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.55 });
+
+  group.add(part(new THREE.BoxGeometry(0.72, 1.0, 0.32), bodyMaterial, [0, 1.25, 0]));
+  group.add(part(new THREE.SphereGeometry(0.25, 24, 16), skinMaterial, [0, 1.95, 0]));
+  group.add(part(new THREE.BoxGeometry(0.62, 0.28, 0.34), accentMaterial, [0, 0.72, 0]));
+  group.add(part(new THREE.BoxGeometry(0.22, 0.72, 0.22), bodyMaterial, [-0.52, 1.45, 0]));
+  group.add(part(new THREE.BoxGeometry(0.22, 0.72, 0.22), bodyMaterial, [0.52, 1.45, 0]));
+  group.add(part(new THREE.BoxGeometry(0.24, 0.68, 0.24), accentMaterial, [-0.22, 0.37, 0]));
+  group.add(part(new THREE.BoxGeometry(0.24, 0.68, 0.24), accentMaterial, [0.22, 0.37, 0]));
+
+  return group;
 }

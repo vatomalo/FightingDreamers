@@ -4,6 +4,8 @@ import { Combatant, FightGame } from './combat.js';
 import { createArena, createFighterModel } from './fighterFactory.js';
 import { InputBuffer } from './input.js';
 import { STATES } from './animationStateMachine.js';
+import playerModelUrl from '../Models/T-Pose (4).fbx?url';
+import opponentModelUrl from '../Models/T-Pose (5).fbx?url';
 import './styles.css';
 
 const canvas = document.querySelector('#game');
@@ -34,21 +36,44 @@ scene.add(rimLight);
 
 scene.add(createArena());
 
-const playerModel = createFighterModel({ body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f });
-const opponentModel = createFighterModel({ body: 0xdf4f59, accent: 0x241923, skin: 0xd8a07f });
-scene.add(playerModel.root, opponentModel.root);
-
 const input = new InputBuffer();
-const player = new Combatant({ name: 'Dreamer', model: playerModel, x: -1.35 });
-const opponent = new Combatant({ name: 'Rival', model: opponentModel, x: 1.35, ai: new AiController() });
-const game = new FightGame({ player, opponent, input });
 const clock = new THREE.Clock();
-
 const hud = createHud();
-window.__FIGHTING_DREAMERS__ = {
-  game,
-  snapshot: () => game.snapshot(),
-};
+let player;
+let opponent;
+let game;
+
+init();
+
+async function init() {
+  hud.message.textContent = 'Loading fighters';
+  const [playerModel, opponentModel] = await Promise.all([
+    createFighterModel({
+      url: playerModelUrl,
+      tint: 0x51d88a,
+      fallback: { body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f },
+    }),
+    createFighterModel({
+      url: opponentModelUrl,
+      tint: 0xdf4f59,
+      fallback: { body: 0xdf4f59, accent: 0x241923, skin: 0xd8a07f },
+    }),
+  ]);
+
+  scene.add(playerModel.root, opponentModel.root);
+
+  player = new Combatant({ name: 'Dreamer', model: playerModel, x: -1.35 });
+  opponent = new Combatant({ name: 'Rival', model: opponentModel, x: 1.35, ai: new AiController() });
+  game = new FightGame({ player, opponent, input });
+
+  window.__FIGHTING_DREAMERS__ = {
+    game,
+    snapshot: () => game.snapshot(),
+  };
+
+  clock.start();
+  tick();
+}
 
 function tick() {
   const delta = Math.min(clock.getDelta(), 0.05);
@@ -72,14 +97,11 @@ function applyPose(combatant, time) {
   const bob = Math.sin(time * 7.5) * 0.04;
   const flashColor = combatant.flash > 0 ? 1.8 : 1;
 
-  model.root.rotation.set(0, facing > 0 ? -0.15 : 0.15, 0);
+  model.root.rotation.set(0, facing > 0 ? Math.PI / 2 : -Math.PI / 2, 0);
   model.root.scale.set(1, 1, 1);
-  model.torso.rotation.set(0, 0, 0);
-  model.head.rotation.set(0, 0, 0);
-  model.leftArm.rotation.set(0, 0, 0.28);
-  model.rightArm.rotation.set(0, 0, -0.28);
-  model.leftLeg.rotation.set(0, 0, 0.12);
-  model.rightLeg.rotation.set(0, 0, -0.12);
+  model.visual.rotation.set(0, 0, 0);
+  model.visual.scale.copy(model.visual.userData.baseScale);
+  model.visual.position.copy(model.visual.userData.basePosition);
   model.root.position.y = 0.02;
   model.shadow.scale.set(1, 1, 0.48);
 
@@ -89,43 +111,36 @@ function applyPose(combatant, time) {
     case STATES.WALK_FORWARD:
     case STATES.WALK_BACK:
       model.root.position.y += Math.abs(bob);
-      model.leftArm.rotation.z = Math.sin(time * 9) * 0.45;
-      model.rightArm.rotation.z = -Math.sin(time * 9) * 0.45;
-      model.leftLeg.rotation.z = -Math.sin(time * 9) * 0.35;
-      model.rightLeg.rotation.z = Math.sin(time * 9) * 0.35;
+      model.visual.rotation.z = Math.sin(time * 9) * 0.04 * facing;
+      model.visual.position.z += Math.sin(time * 9) * 0.035;
       break;
     case STATES.CROUCH:
-      model.root.scale.y = 0.72;
+      model.visual.scale.y *= 0.74;
+      model.visual.scale.x *= 1.08;
       model.root.position.y = -0.04;
-      model.leftArm.rotation.z = 0.85;
-      model.rightArm.rotation.z = -0.85;
       model.shadow.scale.x = 1.15;
       break;
     case STATES.BLOCK:
-      model.torso.rotation.z = -0.12 * facing;
-      model.leftArm.rotation.z = -1.15 * facing;
-      model.rightArm.rotation.z = 1.15 * facing;
+      model.visual.rotation.z = -0.16 * facing;
+      model.visual.position.z = -0.03;
       break;
     case STATES.JAB:
-      model.rightArm.rotation.z = facing * (-1.45 - Math.sin(state.progress * Math.PI) * 0.45);
-      model.torso.rotation.y = -0.18 * facing;
-      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.05 * facing;
-      break;
-    case STATES.HEAVY:
-      model.rightArm.rotation.z = facing * (-0.5 - Math.sin(state.progress * Math.PI) * 1.35);
-      model.torso.rotation.y = -0.55 * facing;
-      model.root.rotation.y = -0.28 * facing;
+      model.visual.rotation.z = -0.08 * facing;
       model.root.position.x += Math.sin(state.progress * Math.PI) * 0.12 * facing;
       break;
+    case STATES.HEAVY:
+      model.visual.rotation.z = -0.24 * facing;
+      model.root.rotation.y += -0.25 * facing;
+      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.2 * facing;
+      break;
     case STATES.ROUNDHOUSE:
-      model.leftLeg.rotation.z = facing * (0.3 + Math.sin(state.progress * Math.PI) * 1.25);
-      model.torso.rotation.z = -0.22 * facing;
+      model.visual.rotation.z = -0.32 * facing;
+      model.visual.position.z = Math.sin(state.progress * Math.PI) * 0.08;
       model.root.position.x += Math.sin(state.progress * Math.PI) * 0.08 * facing;
       break;
     case STATES.HITSTUN:
       model.root.rotation.z = 0.16 * -facing;
-      model.torso.rotation.z = 0.24 * -facing;
-      model.head.rotation.z = 0.22 * -facing;
+      model.visual.rotation.z = 0.18 * -facing;
       break;
     case STATES.KNOCKDOWN:
       model.root.rotation.z = THREE.MathUtils.lerp(0, -Math.PI / 2 * facing, state.progress);
@@ -136,11 +151,18 @@ function applyPose(combatant, time) {
 }
 
 function setModelIntensity(model, scalar) {
-  for (const part of [model.torso, model.head, model.hip, model.leftArm, model.rightArm, model.leftLeg, model.rightLeg]) {
-    if (part.material.emissive) {
-      part.material.emissive.setRGB(0.08 * scalar, 0.06 * scalar, 0.04 * scalar);
+  model.visual.traverse((part) => {
+    if (!part.isMesh) {
+      return;
     }
-  }
+
+    const materials = Array.isArray(part.material) ? part.material : [part.material];
+    for (const material of materials) {
+      if (material?.emissive) {
+        material.emissive.setRGB(0.08 * scalar, 0.06 * scalar, 0.04 * scalar);
+      }
+    }
+  });
 }
 
 function updateCamera() {
@@ -211,4 +233,3 @@ function resize() {
 
 window.addEventListener('resize', resize);
 resize();
-tick();

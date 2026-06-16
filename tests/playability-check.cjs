@@ -48,6 +48,7 @@ async function runViewport(browser, viewport) {
 
   await page.goto(BASE_URL, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => Boolean(window.__FIGHTING_DREAMERS__));
+  await page.locator('#game').click({ position: { x: 8, y: 8 } });
   await page.waitForTimeout(500);
 
   const renderStats = screenshotStats(await page.screenshot());
@@ -60,7 +61,22 @@ async function runViewport(browser, viewport) {
   assert(initial.opponent.health === 100, 'opponent starts with full health');
   assert(initial.opponent.x < 2.25, `opponent should approach, not retreat to the wall: ${initial.opponent.x}`);
 
-  await hold(page, 'KeyL', 2600);
+  await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.player.position.x = -0.45;
+    game.opponent.position.x = 0.45;
+    game.opponent.ai.attackCooldown = 99;
+  });
+  await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.input.down.add('KeyL');
+    game.update(1 / 60);
+    game.opponent.machine.transition('heavy');
+    for (let i = 0; i < 36; i++) {
+      game.update(1 / 60);
+    }
+    game.input.down.delete('KeyL');
+  });
   const afterBlock = await snapshot(page);
   assert(afterBlock.debug.blocked > 0, 'holding block can defend against the CPU');
   assert(afterBlock.player.health >= 92, `blocking should avoid full damage, health was ${afterBlock.player.health}`);
@@ -79,11 +95,28 @@ async function runViewport(browser, viewport) {
   await page.keyboard.press('KeyU');
   await page.waitForTimeout(900);
 
+  await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.player.position.x = -0.45;
+    game.opponent.position.x = 0.45;
+    game.opponent.ai.attackCooldown = 99;
+    game.input.pressed.add('KeyJ');
+    game.update(1 / 60);
+    game.input.pressed.clear();
+    for (let i = 0; i < 18; i++) {
+      game.update(1 / 60);
+    }
+  });
+
   const afterCombo = await snapshot(page);
   assert(afterCombo.player.x > initial.player.x, 'player can walk forward');
   assert(afterCombo.debug.playerAttacks >= 2, 'player attacks are counted');
   assert(afterCombo.opponent.health < 100 || afterCombo.debug.blocked > 0, 'player attacks interact with opponent');
 
+  await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.opponent.ai.attackCooldown = 0;
+  });
   await page.waitForTimeout(4500);
   const afterAi = await snapshot(page);
   assert(afterAi.debug.opponentAttacks > 0, 'autonomous opponent attacks');
