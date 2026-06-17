@@ -239,6 +239,7 @@ async function loadSceneBackground(selectedBackground) {
   try {
     const pngBackground = await createPngBackdrop({
       url: selectedBackground.url,
+      skyUrl: selectedBackground.skyUrl,
       name: `${selectedBackground.name}-png-backdrop`,
     });
     pngBackgroundObject = pngBackground;
@@ -246,6 +247,8 @@ async function loadSceneBackground(selectedBackground) {
     pngBackgroundStatus.state = 'loaded';
     pngBackgroundStatus.width = pngBackground.userData.textureSize?.width ?? 0;
     pngBackgroundStatus.height = pngBackground.userData.textureSize?.height ?? 0;
+    pngBackgroundStatus.skyWidth = pngBackground.userData.skyTextureSize?.width ?? 0;
+    pngBackgroundStatus.skyHeight = pngBackground.userData.skyTextureSize?.height ?? 0;
   } catch (error) {
     console.warn('Could not load PNG background.', error);
     pngBackgroundStatus.state = 'error';
@@ -619,8 +622,15 @@ function createBackgroundOptions() {
       url,
     ]),
   );
+  const skyByName = Object.fromEntries(
+    Object.entries(pngBackgroundModules)
+      .filter(([path]) => path.split('/').pop()?.startsWith('sky-'))
+      .map(([path, url]) => [path.split('/').pop()?.replace(/^sky-/i, '').replace(/\.png$/i, '') ?? 'background', url])
+      .filter(([name]) => name !== 'background'),
+  );
 
   return Object.entries(pngBackgroundModules)
+    .filter(([path]) => !path.split('/').pop()?.startsWith('sky-'))
     .map(([path, url]) => {
       const name = path.split('/').pop()?.replace(/\.png$/i, '') ?? 'background';
 
@@ -628,6 +638,7 @@ function createBackgroundOptions() {
         name,
         url,
         plyUrl: plyByName[name] ?? null,
+        skyUrl: skyByName[name] ?? null,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));

@@ -4,50 +4,87 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 const SH_C0 = 0.28209479177387814;
 const BACKDROP_PLACEMENT = {
   height: 38,
-  radius: 17.5,
+  radius: 15.5,
   position: new THREE.Vector3(0, 9.35, 0),
 };
-const GROUND_BAND_HEIGHT = 8;
-const GROUND_BAND_Y = -14.8;
-const GROUND_CAP_Y = -8.95;
+const GROUND_BAND_HEIGHT = 5.8;
+const GROUND_BAND_Y = -13.7;
+const GROUND_CAP_Y = -9.7;
 const BACKDROP_SCROLL_SPEED = 0;
 const BACKDROP_PARALLAX_X = 0.018;
 const BACKDROP_HORIZONTAL_REPEAT = 5;
 const BACKDROP_VERTICAL_REPEAT = 2;
 const GROUND_TEXTURE_SLICE_HEIGHT = 0.24;
+const SKY_SECTION_HEIGHT = 23;
+const STAGE_SECTION_HEIGHT = 14;
+const SKY_SECTION_Y = 7.5;
+const STAGE_SECTION_Y = -11.1;
 
-export async function createPngBackdrop({ url, name = 'png-backdrop', height = BACKDROP_PLACEMENT.height } = {}) {
+export async function createPngBackdrop({ url, skyUrl = null, name = 'png-backdrop', height = BACKDROP_PLACEMENT.height } = {}) {
   if (!url) {
     throw new Error('PNG backdrop requires a texture URL.');
   }
 
   const texture = await new THREE.TextureLoader().loadAsync(url);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 8;
+  prepareBackdropTexture(texture, {
+    repeatX: BACKDROP_HORIZONTAL_REPEAT,
+    repeatY: BACKDROP_VERTICAL_REPEAT,
+  });
+  const skyTexture = skyUrl ? await new THREE.TextureLoader().loadAsync(skyUrl) : null;
+
+  if (skyTexture) {
+    prepareBackdropTexture(skyTexture, {
+      repeatX: BACKDROP_HORIZONTAL_REPEAT,
+      repeatY: 1,
+    });
+  }
 
   const imageWidth = texture.image?.naturalWidth ?? texture.image?.width ?? 16;
   const imageHeight = texture.image?.naturalHeight ?? texture.image?.height ?? 9;
-  texture.wrapS = THREE.MirroredRepeatWrapping;
-  texture.wrapT = THREE.MirroredRepeatWrapping;
-  texture.repeat.set(BACKDROP_HORIZONTAL_REPEAT, BACKDROP_VERTICAL_REPEAT);
 
-  const geometry = new THREE.CylinderGeometry(
-    BACKDROP_PLACEMENT.radius,
-    BACKDROP_PLACEMENT.radius,
-    height,
-    96,
-    1,
-    true,
-  );
-  const material = new THREE.MeshBasicMaterial({
-    map: texture,
-    fog: false,
-    depthWrite: false,
-    side: THREE.BackSide,
-  });
-  const backdrop = new THREE.Mesh(geometry, material);
+  const backdrop = new THREE.Group();
   backdrop.name = name;
   backdrop.position.copy(BACKDROP_PLACEMENT.position);
+
+  if (skyTexture) {
+    const stageCylinderTexture = texture.clone();
+    stageCylinderTexture.wrapS = THREE.MirroredRepeatWrapping;
+    stageCylinderTexture.wrapT = THREE.MirroredRepeatWrapping;
+    stageCylinderTexture.repeat.set(BACKDROP_HORIZONTAL_REPEAT, -BACKDROP_VERTICAL_REPEAT);
+    stageCylinderTexture.offset.set(0, 1);
+    stageCylinderTexture.needsUpdate = true;
+
+    const skyCylinder = createBackdropCylinder({
+      texture: skyTexture,
+      height: SKY_SECTION_HEIGHT,
+      y: SKY_SECTION_Y,
+      radiusScale: 1,
+      name: `${name}-sky-cylinder`,
+    });
+    skyCylinder.renderOrder = -31;
+    backdrop.add(skyCylinder);
+
+    const stageCylinder = createBackdropCylinder({
+      texture: stageCylinderTexture,
+      height: STAGE_SECTION_HEIGHT,
+      y: STAGE_SECTION_Y,
+      radiusScale: 0.999,
+      name: `${name}-stage-cylinder`,
+    });
+    stageCylinder.renderOrder = -30;
+    backdrop.add(stageCylinder);
+  } else {
+    const fullCylinder = createBackdropCylinder({
+      texture,
+      height,
+      y: 0,
+      radiusScale: 1,
+      name: `${name}-full-cylinder`,
+    });
+    fullCylinder.renderOrder = -30;
+    backdrop.add(fullCylinder);
+  }
+
   const circumference = Math.PI * 2 * BACKDROP_PLACEMENT.radius;
   const groundTexture = texture.clone();
   groundTexture.wrapS = THREE.MirroredRepeatWrapping;
@@ -103,6 +140,12 @@ export async function createPngBackdrop({ url, name = 'png-backdrop', height = B
   backdrop.renderOrder = -30;
   backdrop.frustumCulled = false;
   backdrop.userData.textureSize = { width: imageWidth, height: imageHeight };
+  backdrop.userData.skyTextureSize = skyTexture
+    ? {
+        width: skyTexture.image?.naturalWidth ?? skyTexture.image?.width ?? 0,
+        height: skyTexture.image?.naturalHeight ?? skyTexture.image?.height ?? 0,
+      }
+    : { width: 0, height: 0 };
   backdrop.userData.backdropSize = { width: circumference, height };
   backdrop.userData.backdropPosition = BACKDROP_PLACEMENT.position.clone();
   backdrop.userData.radius = BACKDROP_PLACEMENT.radius;
@@ -110,6 +153,36 @@ export async function createPngBackdrop({ url, name = 'png-backdrop', height = B
   backdrop.userData.scrollY = 0;
 
   return backdrop;
+}
+
+function prepareBackdropTexture(texture, { repeatX, repeatY }) {
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  texture.wrapS = THREE.MirroredRepeatWrapping;
+  texture.wrapT = THREE.MirroredRepeatWrapping;
+  texture.repeat.set(repeatX, repeatY);
+}
+
+function createBackdropCylinder({ texture, height, y, radiusScale, name }) {
+  const geometry = new THREE.CylinderGeometry(
+    BACKDROP_PLACEMENT.radius * radiusScale,
+    BACKDROP_PLACEMENT.radius * radiusScale,
+    height,
+    96,
+    1,
+    true,
+  );
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    fog: false,
+    depthWrite: false,
+    side: THREE.BackSide,
+  });
+  const cylinder = new THREE.Mesh(geometry, material);
+  cylinder.name = name;
+  cylinder.position.y = y;
+  cylinder.frustumCulled = false;
+  return cylinder;
 }
 
 export function updatePngBackdrop(backdrop, { cameraX = 0, delta = 0 } = {}) {

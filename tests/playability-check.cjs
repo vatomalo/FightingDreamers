@@ -161,6 +161,8 @@ async function runViewport(browser, viewport) {
   if (animationInfo.pngBackgroundStatus.state === 'loaded') {
     assert(animationInfo.pngBackgroundStatus.width > 0, `PNG background reports image width, status was ${JSON.stringify(animationInfo.pngBackgroundStatus)}`);
     assert(animationInfo.pngBackgroundStatus.height > 0, `PNG background reports image height, status was ${JSON.stringify(animationInfo.pngBackgroundStatus)}`);
+    assert(animationInfo.pngBackgroundStatus.skyWidth > 0, `PNG background has paired sky width, status was ${JSON.stringify(animationInfo.pngBackgroundStatus)}`);
+    assert(animationInfo.pngBackgroundStatus.skyHeight > 0, `PNG background has paired sky height, status was ${JSON.stringify(animationInfo.pngBackgroundStatus)}`);
   }
   assert(animationInfo.modelOptionCount >= 5, 'runtime has all added fighter model choices');
   assert(animationInfo.animationStyleNames.includes('default'), 'runtime discovers the default animation style folder');
