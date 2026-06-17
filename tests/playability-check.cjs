@@ -168,6 +168,7 @@ async function runViewport(browser, viewport) {
   assert(animationInfo.animationStyleOptions.includes('default'), 'default style is complete');
   assert(animationInfo.animationStyleOptions.includes('boxing'), 'boxing style is complete');
   assert(animationInfo.animationStyleOptions.includes(animationInfo.activeAnimationStyleName), 'active animation style is complete');
+  assert(animationInfo.activeAnimationStyleName === 'boxing', 'boxing style is preferred when available');
   assert(animationInfo.differentModels, 'player and opponent choose different model files');
   assert(playerAiEnabledByDefault, 'player 1 starts with AI enabled');
   for (const [key, trackCount] of Object.entries(animationInfo.actionTrackCounts)) {
@@ -308,9 +309,12 @@ async function runViewport(browser, viewport) {
     game.update(1 / 60);
     game.input.pressed.clear();
     window.__FIGHTING_DREAMERS__.syncAnimations();
+    game.player.model.mixer.update(1 / 60);
+    window.__FIGHTING_DREAMERS__.constrainRootMotion();
     const hurricane = {
       state: game.player.state.state,
       actionRunning: Boolean(game.player.model.actions.hurricaneKick?.action.isRunning()),
+      rootYDelta: Math.abs(game.player.model.rootBone.position.y - game.player.model.baseRootBonePosition.y),
     };
     game.player.machine.transition('idle');
     game.player.state = game.player.machine.snapshot();
@@ -328,6 +332,7 @@ async function runViewport(browser, viewport) {
   });
   assert(specialKickStart.hurricane.state === 'hurricaneKick', 'H enters the hurricane kick state');
   assert(specialKickStart.hurricane.actionRunning, 'hurricane kick animation action starts');
+  assert(specialKickStart.hurricane.rootYDelta < 0.001, `hurricane kick root Y is locked, delta was ${specialKickStart.hurricane.rootYDelta}`);
   assert(specialKickStart.martelo.state === 'marteloKick', 'M enters the martelo kick state');
   assert(specialKickStart.martelo.actionRunning, 'martelo kick animation action starts');
 

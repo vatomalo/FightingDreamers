@@ -560,6 +560,10 @@ function selectAnimationStyle() {
     return animationStyles[requestedStyle];
   }
 
+  if (animationStyles.boxing && isCompleteAnimationStyle(animationStyles.boxing)) {
+    return animationStyles.boxing;
+  }
+
   if (animationStyleOptions.length === 0) {
     return animationStyles.default ?? Object.values(animationStyles)[0] ?? createEmptyAnimationStyle('default');
   }

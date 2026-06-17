@@ -285,7 +285,7 @@ async function createActionAnimations(mixer, animations) {
 }
 
 function sanitizeRootPositionTrack(track, { lockDepthRootMotion }) {
-  if (!track.name.endsWith('Hips.position')) {
+  if (!isRootMotionPositionTrack(track.name)) {
     return track;
   }
 
@@ -304,4 +304,24 @@ function sanitizeRootPositionTrack(track, { lockDepthRootMotion }) {
   }
 
   return new THREE.VectorKeyframeTrack(track.name, track.times.slice(), values);
+}
+
+function isRootMotionPositionTrack(trackName) {
+  if (!trackName.endsWith('.position')) {
+    return false;
+  }
+
+  const targetName = trackName
+    .slice(0, -'.position'.length)
+    .split(/[.:/|\\]/)
+    .pop()
+    ?.toLowerCase() ?? '';
+
+  return (
+    targetName.endsWith('hips') ||
+    targetName.endsWith('pelvis') ||
+    targetName === 'root' ||
+    targetName === 'armature' ||
+    targetName === 'bip01'
+  );
 }
