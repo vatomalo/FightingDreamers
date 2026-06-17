@@ -346,6 +346,9 @@ async function runViewport(browser, viewport) {
       jumpActionRunning: Boolean(game.player.model.actions.jump?.action.isRunning()),
       jumpKickActionRunning: Boolean(game.player.model.actions.jumpKick?.action.isRunning()),
     };
+    game.player.model.mixer.update(1 / 60);
+    window.__FIGHTING_DREAMERS__.constrainRootMotion();
+    const jumpRootYDelta = Math.abs(game.player.model.rootBone.position.y - game.player.model.baseRootBonePosition.y);
     game.input.pressed.add('KeyK');
     game.update(1 / 60);
     game.input.pressed.clear();
@@ -365,12 +368,30 @@ async function runViewport(browser, viewport) {
     game.input.pressed.clear();
     game.input.down.delete('KeyW');
     window.__FIGHTING_DREAMERS__.syncAnimations();
+    game.player.model.mixer.update(1 / 60);
+    window.__FIGHTING_DREAMERS__.constrainRootMotion();
+    const jumpKickRootYDelta = Math.abs(game.player.model.rootBone.position.y - game.player.model.baseRootBonePosition.y);
     return {
       jumpOnly,
       kickDuringJump,
       state: game.player.state.state,
       actionRunning: Boolean(game.player.model.actions.jumpKick?.action.isRunning()),
+      jumpRootYDelta,
+      jumpKickRootYDelta,
     };
+  });
+  const jumpPoseLift = await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    window.__FIGHTING_DREAMERS__.syncAnimations();
+    window.__FIGHTING_DREAMERS__.constrainRootMotion();
+    const before = game.player.model.root.position.y;
+    game.player.state = {
+      ...game.player.state,
+      state: 'jumpKick',
+      progress: 0.5,
+    };
+    window.__FIGHTING_DREAMERS__.applyPoseForTest(game.player, 0);
+    return game.player.model.root.position.y - before;
   });
   await page.evaluate(() => {
     const { game } = window.__FIGHTING_DREAMERS__;
@@ -386,6 +407,9 @@ async function runViewport(browser, viewport) {
   assert(!jumpKickStart.kickDuringJump.jumpKickActionRunning, 'jump does not chain into jump kick');
   assert(jumpKickStart.state === 'jumpKick', 'W+K enters the jump kick state');
   assert(jumpKickStart.actionRunning, 'jump kick animation action starts');
+  assert(jumpKickStart.jumpRootYDelta < 0.001, `jump animation root Y is locked, delta was ${jumpKickStart.jumpRootYDelta}`);
+  assert(jumpKickStart.jumpKickRootYDelta < 0.001, `jump kick animation root Y is locked, delta was ${jumpKickStart.jumpKickRootYDelta}`);
+  assert(jumpPoseLift > 0.5, `gameplay code adds jump Y lift, lift was ${jumpPoseLift}`);
   assert(afterJumpKick.opponent.health < 100 || afterJumpKick.debug.blocked > 0, 'jump kick interacts with opponent');
 
   await page.keyboard.press('KeyR');

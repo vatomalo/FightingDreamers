@@ -4,8 +4,8 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 const SH_C0 = 0.28209479177387814;
 const BACKDROP_PLACEMENT = {
   height: 38,
-  radius: 24,
-  position: new THREE.Vector3(0, 8.8, 0),
+  radius: 17.5,
+  position: new THREE.Vector3(0, 9.35, 0),
 };
 const GROUND_BAND_HEIGHT = 8;
 const GROUND_BAND_Y = -14.8;

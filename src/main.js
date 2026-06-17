@@ -175,6 +175,9 @@ async function init() {
       constrainRootMotion(player);
       constrainRootMotion(opponent);
     },
+    applyPoseForTest: (combatant, time = 0) => {
+      applyPose(combatant, time);
+    },
     setPlayerAiEnabled: (enabled) => {
       player.ai = enabled ? new AiController({ seed: 7331 }) : null;
     },
@@ -322,9 +325,11 @@ function applyPose(combatant, time) {
     case STATES.KICK:
       break;
     case STATES.JUMP:
+      model.root.position.y += Math.sin(state.progress * Math.PI) * 0.72;
       model.shadow.scale.setScalar(1 - Math.sin(state.progress * Math.PI) * 0.24);
       break;
     case STATES.JUMP_KICK:
+      model.root.position.y += Math.sin(state.progress * Math.PI) * 0.86;
       model.root.position.x += Math.sin(state.progress * Math.PI) * 0.18 * facing;
       model.shadow.scale.setScalar(1 - Math.sin(state.progress * Math.PI) * 0.32);
       break;
@@ -385,10 +390,7 @@ function constrainRootMotion(combatant) {
     return;
   }
 
-  if (combatant.state.state !== STATES.JUMP && combatant.state.state !== STATES.JUMP_KICK) {
-    rootBone.position.y = baseRootBonePosition.y;
-    combatant.model.root.position.y = 0.02;
-  }
+  rootBone.position.y = baseRootBonePosition.y;
 
   if (combatant.state.state === STATES.GRAB) {
     rootBone.position.x = baseRootBonePosition.x;

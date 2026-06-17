@@ -268,7 +268,6 @@ async function createActionAnimations(mixer, animations) {
       const clip = sourceClip.clone();
       clip.name = name;
       clip.tracks = clip.tracks.map((track) => sanitizeRootPositionTrack(track, {
-        allowVerticalRootMotion: name === 'jump' || name === 'jumpKick',
         lockDepthRootMotion: name === 'grab',
       }));
 
@@ -285,7 +284,7 @@ async function createActionAnimations(mixer, animations) {
   return actions;
 }
 
-function sanitizeRootPositionTrack(track, { allowVerticalRootMotion, lockDepthRootMotion }) {
+function sanitizeRootPositionTrack(track, { lockDepthRootMotion }) {
   if (!track.name.endsWith('Hips.position')) {
     return track;
   }
@@ -297,29 +296,10 @@ function sanitizeRootPositionTrack(track, { allowVerticalRootMotion, lockDepthRo
 
   for (let i = 0; i < values.length; i += 3) {
     values[i] = lockedX;
+    values[i + 1] = lockedHeight;
 
-    if (!allowVerticalRootMotion) {
-      values[i] = lockedX;
-      values[i + 1] = lockedHeight;
-      if (lockDepthRootMotion) {
-        values[i + 2] = lockedZ;
-      }
-    }
-  }
-
-  if (allowVerticalRootMotion) {
-    let minHeight = lockedHeight;
-
-    for (let i = 1; i < values.length; i += 3) {
-      minHeight = Math.min(minHeight, values[i]);
-    }
-
-    const startAirOffset = lockedHeight - minHeight;
-
-    if (startAirOffset > 0) {
-      for (let i = 1; i < values.length; i += 3) {
-        values[i] -= startAirOffset;
-      }
+    if (lockDepthRootMotion) {
+      values[i + 2] = lockedZ;
     }
   }
 
