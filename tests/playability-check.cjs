@@ -112,6 +112,7 @@ async function runViewport(browser, viewport) {
       ),
       modelOptionCount: window.__FIGHTING_DREAMERS__.modelOptions.length,
       animationStyleNames: window.__FIGHTING_DREAMERS__.animationStyleNames,
+      animationStyleOptions: window.__FIGHTING_DREAMERS__.animationStyleOptions,
       activeAnimationStyleName: window.__FIGHTING_DREAMERS__.activeAnimationStyleName,
       differentModels: game.player.model.sourceUrl !== game.opponent.model.sourceUrl,
     };
@@ -163,7 +164,10 @@ async function runViewport(browser, viewport) {
   }
   assert(animationInfo.modelOptionCount >= 5, 'runtime has all added fighter model choices');
   assert(animationInfo.animationStyleNames.includes('default'), 'runtime discovers the default animation style folder');
-  assert(animationInfo.activeAnimationStyleName === 'default', 'default animation style is active');
+  assert(animationInfo.animationStyleNames.includes('boxing'), 'runtime discovers the boxing animation style folder');
+  assert(animationInfo.animationStyleOptions.includes('default'), 'default style is complete');
+  assert(animationInfo.animationStyleOptions.includes('boxing'), 'boxing style is complete');
+  assert(animationInfo.animationStyleOptions.includes(animationInfo.activeAnimationStyleName), 'active animation style is complete');
   assert(animationInfo.differentModels, 'player and opponent choose different model files');
   assert(playerAiEnabledByDefault, 'player 1 starts with AI enabled');
   for (const [key, trackCount] of Object.entries(animationInfo.actionTrackCounts)) {

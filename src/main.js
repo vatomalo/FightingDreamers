@@ -15,7 +15,7 @@ const modelModules = import.meta.glob('../Models/*.fbx', {
   import: 'default',
   query: '?url',
 });
-const animationModules = import.meta.glob('../Models/Anim/**/*.fbx', {
+const animationModules = import.meta.glob('../Models/Anim/*/*.fbx', {
   eager: true,
   import: 'default',
   query: '?url',
@@ -30,10 +30,27 @@ const plyBackgroundModules = import.meta.glob('../Backgrounds/*.ply', {
   import: 'default',
   query: '?url',
 });
+const requiredAnimationActions = [
+  'jab',
+  'heavy',
+  'kick',
+  'jump',
+  'jumpKick',
+  'hurricaneKick',
+  'marteloKick',
+  'roundhouse',
+  'grab',
+  'hithead',
+  'hitbody',
+  'hitbody-big',
+  'death',
+  'death-flyingback',
+];
 const pngBackgroundOptions = createBackgroundOptions();
 const modelOptions = createModelOptions();
 const animationStyles = createAnimationStyles();
-const activeAnimationStyle = animationStyles.default ?? Object.values(animationStyles)[0] ?? createEmptyAnimationStyle('default');
+const animationStyleOptions = createAnimationStyleOptions();
+const activeAnimationStyle = selectAnimationStyle();
 const stanceOptions = activeAnimationStyle.stances;
 
 const canvas = document.querySelector('#game');
@@ -143,6 +160,7 @@ async function init() {
     game,
     modelOptions,
     animationStyleNames: Object.keys(animationStyles),
+    animationStyleOptions: animationStyleOptions.map((style) => style.name),
     activeAnimationStyleName: activeAnimationStyle.name,
     backgroundStatus,
     pngBackgroundStatus,
@@ -522,6 +540,29 @@ function createEmptyAnimationStyle(name) {
     actions: {},
     stances: [],
   };
+}
+
+function createAnimationStyleOptions() {
+  const completeStyles = Object.values(animationStyles).filter((style) => isCompleteAnimationStyle(style));
+  return completeStyles.length > 0 ? completeStyles : Object.values(animationStyles);
+}
+
+function isCompleteAnimationStyle(style) {
+  return style.stances.length > 0 && requiredAnimationActions.every((action) => Boolean(style.actions[action]));
+}
+
+function selectAnimationStyle() {
+  const requestedStyle = new URLSearchParams(window.location.search).get('style');
+
+  if (requestedStyle && animationStyles[requestedStyle] && isCompleteAnimationStyle(animationStyles[requestedStyle])) {
+    return animationStyles[requestedStyle];
+  }
+
+  if (animationStyleOptions.length === 0) {
+    return animationStyles.default ?? Object.values(animationStyles)[0] ?? createEmptyAnimationStyle('default');
+  }
+
+  return animationStyleOptions[Math.floor(Math.random() * animationStyleOptions.length)];
 }
 
 function animationStyleNameFromPath(path) {
