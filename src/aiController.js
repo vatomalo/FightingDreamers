@@ -1,11 +1,13 @@
 export class AiController {
-  constructor() {
+  constructor({ seed = 1337 } = {}) {
     this.intent = new VirtualInput();
-    this.seed = 1337;
+    this.seed = seed;
     this.personality = {
-      preferredRange: 1.05,
-      retreatRange: 0.58,
-      farRange: 2.0,
+      preferredMin: 1.08,
+      preferredMax: 1.42,
+      retreatRange: 0.92,
+      farRange: 2.15,
+      reactionDelay: 0.22,
     };
     this.reset();
   }
@@ -15,6 +17,11 @@ export class AiController {
     this.thinkTimer = 0;
     this.blockTimer = 0;
     this.attackCooldown = 1.2;
+    this.macro = null;
+    this.macroTimer = 0;
+    this.macroElapsed = 0;
+    this.lastOpponentState = null;
+    this.reactionTimer = 0;
   }
 
   update(delta, self, opponent) {
@@ -22,12 +29,30 @@ export class AiController {
     this.thinkTimer -= delta;
     this.blockTimer = Math.max(0, this.blockTimer - delta);
     this.attackCooldown = Math.max(0, this.attackCooldown - delta);
+    this.updateReactionClock(delta, opponent);
 
     const distance = Math.abs(opponent.position.x - self.position.x);
-    const opponentAttacking = Boolean(opponent.state.attack && opponent.state.progress < 0.72);
+    const opponentAttacking = Boolean(opponent.state.attack && opponent.state.progress < 0.78);
+    const canReact = this.reactionTimer <= 0;
 
-    if (opponentAttacking && distance < 1.35 && this.random() < 0.36) {
-      this.blockTimer = Math.max(this.blockTimer, 0.26);
+    if (this.macroTimer > 0) {
+      this.runMovementMacro(delta, self, opponent);
+      return this.intent;
+    }
+
+    if (canReact && this.canWhiffPunish(opponent, distance)) {
+      this.chooseWhiffPunish(distance);
+      return this.intent;
+    }
+
+    if (canReact && opponentAttacking && distance < this.threatRange(opponent) + 0.4 && this.random() < 0.38) {
+      this.startMacro('kbdRetreat', 0.28, self, opponent);
+      this.attackCooldown = Math.max(this.attackCooldown, 0.18);
+      return this.intent;
+    }
+
+    if (canReact && opponentAttacking && distance < this.threatRange(opponent) + 0.18 && this.random() < 0.34) {
+      this.blockTimer = Math.max(this.blockTimer, 0.2);
     }
 
     if (this.blockTimer > 0) {
@@ -45,29 +70,42 @@ export class AiController {
       return this.intent;
     }
 
-    if (this.attackCooldown <= 0 && distance < 1.18) {
+    if (this.attackCooldown <= 0 && distance > 0.86 && distance < 1.36) {
       this.chooseAttack(distance);
       return this.intent;
     }
 
     if (distance > this.personality.farRange) {
-      this.intent.hold(this.towardKey(self, opponent));
-    } else if (distance > this.personality.preferredRange) {
+      this.startMacro('dashIn', 0.18, self, opponent);
+    } else if (distance > this.personality.preferredMax) {
       this.intent.hold(this.towardKey(self, opponent));
       if (this.attackCooldown <= 0 && this.random() < 0.018) {
         this.chooseAttack(distance);
       }
     } else if (distance < this.personality.retreatRange) {
-      this.intent.hold(this.awayKey(self, opponent));
+      this.startMacro('kbdRetreat', 0.3, self, opponent);
+    } else if (distance < this.personality.preferredMin && this.random() < 0.11) {
+      this.startMacro('kbdRetreat', 0.24, self, opponent);
     } else if (this.attackCooldown <= 0 && this.random() < 0.022) {
       this.chooseAttack(distance);
+    } else if (this.random() < 0.028) {
+      this.startMacro('kbdRetreat', 0.18, self, opponent);
     }
 
     return this.intent;
   }
 
   chooseAttack(distance) {
-    if (distance < 0.72 && this.random() < 0.34) {
+    if (distance > 1.18 && distance < 1.58 && this.random() < 0.28) {
+      this.startMacro('jumpKick', 0.42);
+      this.attackCooldown = 1.25;
+    } else if (distance > 1.12 && this.random() < 0.34) {
+      this.intent.press('KeyH');
+      this.attackCooldown = 1.15;
+    } else if (distance > 0.92 && this.random() < 0.38) {
+      this.intent.press('KeyM');
+      this.attackCooldown = 0.98;
+    } else if (distance < 0.72 && this.random() < 0.34) {
       this.intent.press('KeyO');
       this.attackCooldown = 1.2;
     } else if (distance > 1.02) {
@@ -82,6 +120,75 @@ export class AiController {
     } else {
       this.intent.press('KeyU');
       this.attackCooldown = 1.05;
+    }
+  }
+
+  chooseWhiffPunish(distance) {
+    if (distance > 1.34) {
+      this.startMacro('dashIn', 0.16);
+      this.attackCooldown = 0.18;
+    } else if (distance > 1.08) {
+      this.intent.press('KeyH');
+      this.attackCooldown = 1.0;
+    } else if (distance > 0.88) {
+      this.intent.press('KeyM');
+      this.attackCooldown = 0.9;
+    } else {
+      this.intent.press('KeyU');
+      this.attackCooldown = 1.05;
+    }
+  }
+
+  canWhiffPunish(opponent, distance) {
+    const attack = opponent.state.attack;
+
+    if (!attack || opponent.state.hitResolved) {
+      return false;
+    }
+
+    const hasPassedActiveFrames = opponent.state.elapsed > attack.activeTo;
+    const whiffedBySpacing = distance > attack.range + 0.08;
+    return hasPassedActiveFrames && whiffedBySpacing && distance < 1.72;
+  }
+
+  threatRange(opponent) {
+    return opponent.state.attack?.range ?? 1.1;
+  }
+
+  updateReactionClock(delta, opponent) {
+    if (opponent.state.state !== this.lastOpponentState) {
+      this.lastOpponentState = opponent.state.state;
+      this.reactionTimer = this.personality.reactionDelay;
+      return;
+    }
+
+    this.reactionTimer = Math.max(0, this.reactionTimer - delta);
+  }
+
+  startMacro(macro, duration, self = null, opponent = null) {
+    this.macro = macro;
+    this.macroTimer = duration;
+    this.macroElapsed = 0;
+    this.runMovementMacro(0, self, opponent);
+  }
+
+  runMovementMacro(delta, self, opponent) {
+    this.macroTimer = Math.max(0, this.macroTimer - delta);
+    this.macroElapsed += delta;
+
+    if (this.macro === 'kbdRetreat') {
+      this.intent.hold(this.awayKey(self, opponent));
+    } else if (this.macro === 'dashIn') {
+      this.intent.hold(this.towardKey(self, opponent));
+    } else if (this.macro === 'jumpKick') {
+      this.intent.hold('KeyW');
+      if (this.macroElapsed <= 0.04) {
+        this.intent.press('KeyK');
+      }
+    }
+
+    if (this.macroTimer <= 0) {
+      this.macro = null;
     }
   }
 

@@ -33,6 +33,8 @@ export async function createFighterModel({
 
   normalizeModel(visual, height);
   prepareModelMaterials(visual, tint);
+  const rootBone = findRootBone(visual);
+  const hitSpheres = createHitSpheres(visual);
   root.add(visual);
 
   const animation = stanceUrl ? await createStanceAnimation(visual, stanceUrl, stanceName, stanceClampFinal) : null;
@@ -42,6 +44,10 @@ export async function createFighterModel({
     root,
     visual,
     shadow,
+    rootBone,
+    baseRootBonePosition: rootBone?.position.clone() ?? null,
+    hitSpheres,
+    sourceUrl: url,
     mixer: animation?.mixer ?? null,
     stanceAction: animation?.action ?? null,
     stanceClip: animation?.clip ?? null,
@@ -51,8 +57,74 @@ export async function createFighterModel({
   };
 }
 
+function createHitSpheres(model) {
+  const materialByRole = {
+    attack: new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0.38, wireframe: true, depthTest: false }),
+    hurt: new THREE.MeshBasicMaterial({ color: 0x55c7ff, transparent: true, opacity: 0.32, wireframe: true, depthTest: false }),
+  };
+  const specs = {
+    rightHand: { role: 'attack', radius: 0.105, bones: ['RightHand', 'Right hand', 'R_Hand'] },
+    leftHand: { role: 'attack', radius: 0.105, bones: ['LeftHand', 'Left hand', 'L_Hand'] },
+    rightFoot: { role: 'attack', radius: 0.13, bones: ['RightFoot', 'RightToeBase', 'Right toe', 'R_Foot'] },
+    leftFoot: { role: 'attack', radius: 0.13, bones: ['LeftFoot', 'LeftToeBase', 'Left toe', 'L_Foot'] },
+    head: { role: 'hurt', radius: 0.18, bones: ['Head'] },
+    stomach: { role: 'hurt', radius: 0.22, bones: ['Spine2', 'Spine1', 'Spine', 'Hips'] },
+  };
+  const spheres = {};
+
+  for (const [name, spec] of Object.entries(specs)) {
+    const bone = findBone(model, spec.bones);
+
+    if (!bone) {
+      continue;
+    }
+
+    const sphere = new THREE.Mesh(new THREE.SphereGeometry(spec.radius, 16, 12), materialByRole[spec.role]);
+    sphere.name = `collider-${name}`;
+    sphere.visible = false;
+    sphere.renderOrder = 20;
+    sphere.userData.colliderName = name;
+    sphere.userData.colliderRole = spec.role;
+    sphere.userData.colliderRadius = spec.radius;
+    bone.add(sphere);
+    spheres[name] = sphere;
+  }
+
+  return spheres;
+}
+
+function findBone(model, candidates) {
+  let match = null;
+
+  model.traverse((child) => {
+    if (match || !child.isBone) {
+      return;
+    }
+
+    const normalized = child.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (candidates.some((candidate) => normalized.endsWith(candidate.toLowerCase().replace(/[^a-z0-9]/g, '')))) {
+      match = child;
+    }
+  });
+
+  return match;
+}
+
+function findRootBone(model) {
+  let rootBone = null;
+
+  model.traverse((child) => {
+    if (!rootBone && child.isBone && child.name.endsWith('Hips')) {
+      rootBone = child;
+    }
+  });
+
+  return rootBone;
+}
+
 export function createArena() {
   const group = new THREE.Group();
+  group.visible = false;
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(12, 7),
     new THREE.MeshStandardMaterial({ color: 0x2f3944, roughness: 0.9 }),
@@ -195,11 +267,14 @@ async function createActionAnimations(mixer, animations) {
 
       const clip = sourceClip.clone();
       clip.name = name;
-      clip.tracks = clip.tracks.filter((track) => track.name !== 'mixamorigHips.position');
+      clip.tracks = clip.tracks.map((track) => sanitizeRootPositionTrack(track, {
+        allowVerticalRootMotion: name === 'jump' || name === 'jumpKick',
+        lockDepthRootMotion: name === 'grab',
+      }));
 
       const action = mixer.clipAction(clip);
       action.enabled = true;
-      action.clampWhenFinished = false;
+      action.clampWhenFinished = name.startsWith('death');
       action.setLoop(THREE.LoopOnce, 1);
       actions[name] = { action, clip };
     } catch (error) {
@@ -208,4 +283,45 @@ async function createActionAnimations(mixer, animations) {
   }
 
   return actions;
+}
+
+function sanitizeRootPositionTrack(track, { allowVerticalRootMotion, lockDepthRootMotion }) {
+  if (!track.name.endsWith('Hips.position')) {
+    return track;
+  }
+
+  const values = track.values.slice();
+  const lockedX = values[0] ?? 0;
+  const lockedHeight = values[1] ?? 0;
+  const lockedZ = values[2] ?? 0;
+
+  for (let i = 0; i < values.length; i += 3) {
+    values[i] = lockedX;
+
+    if (!allowVerticalRootMotion) {
+      values[i] = lockedX;
+      values[i + 1] = lockedHeight;
+      if (lockDepthRootMotion) {
+        values[i + 2] = lockedZ;
+      }
+    }
+  }
+
+  if (allowVerticalRootMotion) {
+    let minHeight = lockedHeight;
+
+    for (let i = 1; i < values.length; i += 3) {
+      minHeight = Math.min(minHeight, values[i]);
+    }
+
+    const startAirOffset = lockedHeight - minHeight;
+
+    if (startAirOffset > 0) {
+      for (let i = 1; i < values.length; i += 3) {
+        values[i] -= startAirOffset;
+      }
+    }
+  }
+
+  return new THREE.VectorKeyframeTrack(track.name, track.times.slice(), values);
 }

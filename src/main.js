@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 import { AiController } from './aiController.js';
 import { Combatant, FightGame } from './combat.js';
+import { createGaussianPlyPointBackground, createPngBackdrop, updatePngBackdrop } from './backgroundFactory.js';
+import { CinematicCameraDirector } from './cinematicCamera.js';
 import { createArena, createFighterModel } from './fighterFactory.js';
 import { InputBuffer } from './input.js';
 import { STATES } from './animationStateMachine.js';
-import playerModelUrl from '../Models/T-Pose (6).fbx?url';
-import opponentModelUrl from '../Models/T-Pose (7).fbx?url';
+import modelOneUrl from '../Models/T-Pose (4).fbx?url';
+import modelTwoUrl from '../Models/T-Pose (5).fbx?url';
+import modelThreeUrl from '../Models/T-Pose (6).fbx?url';
+import modelFourUrl from '../Models/T-Pose (7).fbx?url';
+import modelFiveUrl from '../Models/T-Pose (8).fbx?url';
 import stanceDefaultUrl from '../Models/Anim/StanceAnim.fbx?url';
 import stanceSumoUrl from '../Models/Anim/stanceSumo.fbx?url';
 import stanceTwoHandUrl from '../Models/Anim/stance2hand.fbx?url';
@@ -15,9 +20,43 @@ import stanceCapoeiraUrl from '../Models/Anim/stancecapoeira.fbx?url';
 import jabAnimUrl from '../Models/Anim/lpunch.fbx?url';
 import heavyAnimUrl from '../Models/Anim/rpunch.fbx?url';
 import kickAnimUrl from '../Models/Anim/rkick.fbx?url';
+import jumpAnimUrl from '../Models/Anim/jump.fbx?url';
+import jumpKickAnimUrl from '../Models/Anim/jumpkick.fbx?url';
+import hurricaneKickAnimUrl from '../Models/Anim/kickhurricane.fbx?url';
+import marteloKickAnimUrl from '../Models/Anim/kickmartelo.fbx?url';
 import roundhouseAnimUrl from '../Models/Anim/lkick.fbx?url';
 import grabAnimUrl from '../Models/Anim/grabflipkick.fbx?url';
+import hitHeadUrl from '../Models/Anim/hithead.fbx?url';
+import hitHeadBigUrl from '../Models/Anim/hithead-big.fbx?url';
+import hitHeadBigOneUrl from '../Models/Anim/hithead-big-1.fbx?url';
+import hitHeadBigTwoUrl from '../Models/Anim/hithead-big-2.fbx?url';
+import hitBodyUrl from '../Models/Anim/hitbody.fbx?url';
+import hitBodyOneUrl from '../Models/Anim/hitbody-1.fbx?url';
+import hitBodyTwoUrl from '../Models/Anim/hitbody-2.fbx?url';
+import hitBodyBigUrl from '../Models/Anim/hitbody-big.fbx?url';
+import deathUrl from '../Models/Anim/death.fbx?url';
+import deathFallbackUrl from '../Models/Anim/death-fallback.fbx?url';
+import deathFallbackOneUrl from '../Models/Anim/death-fallback-1.fbx?url';
+import deathFlyingBackUrl from '../Models/Anim/death-flyingback.fbx?url';
+import deathStandingLeftUrl from '../Models/Anim/death-standing-left.fbx?url';
+import deathShieldUrl from '../Models/Anim/death-shield.fbx?url';
+import deathTwoHandUrl from '../Models/Anim/death-twohand.fbx?url';
 import './styles.css';
+
+const ENABLE_POINT_BACKGROUND = false;
+const ENABLE_PNG_BACKGROUND = true;
+const pngBackgroundModules = import.meta.glob('../Backgrounds/*.png', {
+  eager: true,
+  import: 'default',
+  query: '?url',
+});
+const plyBackgroundModules = import.meta.glob('../Backgrounds/*.ply', {
+  eager: true,
+  import: 'default',
+  query: '?url',
+});
+const pngBackgroundOptions = createBackgroundOptions();
+const modelOptions = [modelOneUrl, modelTwoUrl, modelThreeUrl, modelFourUrl, modelFiveUrl];
 
 const stanceOptions = [
   { name: 'default', url: stanceDefaultUrl, clampFinal: false },
@@ -62,26 +101,49 @@ const hud = createHud();
 let player;
 let opponent;
 let game;
+let cameraDirector;
+let pngBackgroundObject = null;
+const gameplayCameraPose = {
+  position: new THREE.Vector3(),
+  lookAt: new THREE.Vector3(),
+  fov: 42,
+};
+const backgroundStatus = {
+  state: 'idle',
+  name: null,
+  pointCount: 0,
+  error: null,
+};
+const pngBackgroundStatus = {
+  state: 'idle',
+  name: null,
+  width: 0,
+  height: 0,
+  error: null,
+};
 
 init();
 
 async function init() {
   hud.message.textContent = 'Loading fighters';
+  const selectedBackground = selectPngBackground();
+  if (ENABLE_PNG_BACKGROUND) {
+    loadSceneBackground(selectedBackground);
+  } else {
+    pngBackgroundStatus.state = 'disabled';
+    backgroundStatus.state = 'disabled';
+  }
   const playerStance = randomStance();
   const opponentStance = randomStance();
+  const [playerModelUrl, opponentModelUrl] = randomModelPair();
+  const animations = createAnimationMap();
   const [playerModel, opponentModel] = await Promise.all([
     createFighterModel({
       url: playerModelUrl,
       stanceUrl: playerStance.url,
       stanceName: playerStance.name,
       stanceClampFinal: playerStance.clampFinal,
-      animations: {
-        jab: jabAnimUrl,
-        heavy: heavyAnimUrl,
-        kick: kickAnimUrl,
-        roundhouse: roundhouseAnimUrl,
-        grab: grabAnimUrl,
-      },
+      animations,
       tint: 0x51d88a,
       fallback: { body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f },
     }),
@@ -90,13 +152,7 @@ async function init() {
       stanceUrl: opponentStance.url,
       stanceName: opponentStance.name,
       stanceClampFinal: opponentStance.clampFinal,
-      animations: {
-        jab: jabAnimUrl,
-        heavy: heavyAnimUrl,
-        kick: kickAnimUrl,
-        roundhouse: roundhouseAnimUrl,
-        grab: grabAnimUrl,
-      },
+      animations,
       tint: 0xdf4f59,
       fallback: { body: 0xdf4f59, accent: 0x241923, skin: 0xd8a07f },
     }),
@@ -104,16 +160,49 @@ async function init() {
 
   scene.add(playerModel.root, opponentModel.root);
 
-  player = new Combatant({ name: 'Dreamer', model: playerModel, x: -1.35 });
-  opponent = new Combatant({ name: 'Rival', model: opponentModel, x: 1.35, ai: new AiController() });
-  game = new FightGame({ player, opponent, input });
+  player = new Combatant({ name: 'Dreamer', model: playerModel, x: -1.35, ai: new AiController({ seed: 7331 }) });
+  opponent = new Combatant({ name: 'Rival', model: opponentModel, x: 1.35, ai: new AiController({ seed: 1337 }) });
+  cameraDirector = new CinematicCameraDirector({ camera });
+  game = new FightGame({
+    player,
+    opponent,
+    input,
+    onHitConfirmed: (payload) => cameraDirector.onHit(payload),
+  });
 
   window.__FIGHTING_DREAMERS__ = {
     game,
+    modelOptions,
+    backgroundStatus,
+    pngBackgroundStatus,
+    pngBackgroundOptions,
+    cameraDebug: cameraDirector.debug,
     snapshot: () => game.snapshot(),
     syncAnimations: () => {
       updateAnimationAction(player);
       updateAnimationAction(opponent);
+    },
+    constrainRootMotion: () => {
+      constrainRootMotion(player);
+      constrainRootMotion(opponent);
+    },
+    setPlayerAiEnabled: (enabled) => {
+      player.ai = enabled ? new AiController({ seed: 7331 }) : null;
+    },
+    triggerCameraTest: () => {
+      cameraDirector.cooldown = 0;
+      cameraDirector.onHit({
+        attacker: player,
+        defender: opponent,
+        impactPoint: new THREE.Vector3((player.position.x + opponent.position.x) / 2, 1.08, 0),
+        hitDirection: new THREE.Vector3(player.facing, 0, 0),
+        severity: 1,
+        rawDamage: 18,
+        isBlocked: false,
+        isKill: false,
+        forceCinematic: true,
+        attackState: 'heavy',
+      });
     },
   };
 
@@ -128,16 +217,79 @@ function tick() {
   game.update(delta);
   updateAnimationAction(player);
   updateAnimationAction(opponent);
-  player.model.mixer?.update(delta);
-  opponent.model.mixer?.update(delta);
+  const animationDelta = game.hitstopTimer > 0 ? delta * 0.08 : delta;
+  player.model.mixer?.update(animationDelta);
+  opponent.model.mixer?.update(animationDelta);
+  constrainRootMotion(player);
+  constrainRootMotion(opponent);
   applyPose(player, time);
   applyPose(opponent, time + 0.7);
-  updateCamera();
+  updateCamera(delta);
+  updatePngBackdrop(pngBackgroundObject, { cameraX: gameplayCameraPose.position.x, delta });
   updateHud(game.snapshot());
 
   renderer.render(scene, camera);
   input.endFrame();
   requestAnimationFrame(tick);
+}
+
+async function loadSceneBackground(selectedBackground) {
+  if (!selectedBackground) {
+    pngBackgroundStatus.state = 'no-assets';
+    backgroundStatus.state = 'no-assets';
+    return;
+  }
+
+  pngBackgroundStatus.state = 'loading';
+  pngBackgroundStatus.name = selectedBackground.name;
+  backgroundStatus.name = selectedBackground.name;
+
+  try {
+    const pngBackground = await createPngBackdrop({
+      url: selectedBackground.url,
+      name: `${selectedBackground.name}-png-backdrop`,
+    });
+    pngBackgroundObject = pngBackground;
+    scene.add(pngBackground);
+    pngBackgroundStatus.state = 'loaded';
+    pngBackgroundStatus.width = pngBackground.userData.textureSize?.width ?? 0;
+    pngBackgroundStatus.height = pngBackground.userData.textureSize?.height ?? 0;
+  } catch (error) {
+    console.warn('Could not load PNG background.', error);
+    pngBackgroundStatus.state = 'error';
+    pngBackgroundStatus.error = error?.message ?? String(error);
+    backgroundStatus.state = 'blocked';
+    backgroundStatus.error = 'PNG backdrop failed before PLY alignment.';
+    return;
+  }
+
+  if (!ENABLE_POINT_BACKGROUND) {
+    backgroundStatus.state = 'disabled';
+    return;
+  }
+
+  if (!selectedBackground.plyUrl) {
+    backgroundStatus.state = 'no-assets';
+    return;
+  }
+
+  backgroundStatus.state = 'loading';
+
+  try {
+    const backdropSize = scene.getObjectByName(`${selectedBackground.name}-png-backdrop`)?.userData.backdropSize;
+    const pointBackground = await createGaussianPlyPointBackground(selectedBackground.plyUrl, {
+      name: `${selectedBackground.name}-point-background`,
+      width: backdropSize?.width,
+      height: backdropSize?.height,
+    });
+    scene.add(pointBackground);
+    backgroundStatus.state = 'loaded';
+    backgroundStatus.pointCount = pointBackground.geometry.getAttribute('position')?.count ?? 0;
+  } catch (error) {
+    console.warn('Could not load PLY background.', error);
+    backgroundStatus.state = 'error';
+    backgroundStatus.error = error?.message ?? String(error);
+  }
 }
 
 function applyPose(combatant, time) {
@@ -152,7 +304,9 @@ function applyPose(combatant, time) {
   model.visual.rotation.set(0, 0, 0);
   model.visual.scale.copy(model.visual.userData.baseScale);
   model.visual.position.copy(model.visual.userData.basePosition);
+  model.visual.position.z = model.visual.userData.basePosition.z;
   model.root.position.y = 0.02;
+  model.root.position.z = 0;
   model.shadow.scale.set(1, 1, 0.48);
 
   setModelIntensity(model, flashColor);
@@ -175,28 +329,21 @@ function applyPose(combatant, time) {
       model.visual.position.z = -0.03;
       break;
     case STATES.JAB:
-      model.visual.rotation.z = -0.08 * facing;
-      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.12 * facing;
       break;
     case STATES.KICK:
-      model.visual.rotation.z = -0.18 * facing;
-      model.visual.position.z += Math.sin(state.progress * Math.PI) * 0.08;
-      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.1 * facing;
+      break;
+    case STATES.JUMP:
+      model.shadow.scale.setScalar(1 - Math.sin(state.progress * Math.PI) * 0.24);
+      break;
+    case STATES.JUMP_KICK:
+      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.18 * facing;
+      model.shadow.scale.setScalar(1 - Math.sin(state.progress * Math.PI) * 0.32);
       break;
     case STATES.HEAVY:
-      model.visual.rotation.z = -0.24 * facing;
-      model.root.rotation.y += -0.25 * facing;
-      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.2 * facing;
       break;
     case STATES.ROUNDHOUSE:
-      model.visual.rotation.z = -0.32 * facing;
-      model.visual.position.z = Math.sin(state.progress * Math.PI) * 0.08;
-      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.08 * facing;
       break;
     case STATES.GRAB:
-      model.visual.rotation.z = -0.2 * facing;
-      model.visual.position.z += Math.sin(state.progress * Math.PI) * 0.12;
-      model.root.position.x += Math.sin(state.progress * Math.PI) * 0.08 * facing;
       break;
     case STATES.GRABBED:
       model.visual.rotation.z = 0.28 * -facing;
@@ -208,7 +355,7 @@ function applyPose(combatant, time) {
       break;
     case STATES.KNOCKDOWN:
       model.root.rotation.z = THREE.MathUtils.lerp(0, -Math.PI / 2 * facing, state.progress);
-      model.root.position.y = THREE.MathUtils.lerp(0.02, 0.28, state.progress);
+      model.root.position.y = 0.02;
       model.shadow.scale.x = 1.4;
       break;
   }
@@ -229,12 +376,35 @@ function setModelIntensity(model, scalar) {
   });
 }
 
-function updateCamera() {
+function updateCamera(delta) {
   const center = (player.position.x + opponent.position.x) / 2;
   const distance = Math.abs(player.position.x - opponent.position.x);
-  camera.position.x = THREE.MathUtils.lerp(camera.position.x, center * 0.42, 0.075);
-  camera.position.z = THREE.MathUtils.lerp(camera.position.z, THREE.MathUtils.clamp(5.9 + distance * 0.72, 6.5, 8.6), 0.055);
-  camera.lookAt(center * 0.28, 1.12, 0);
+  gameplayCameraPose.position.set(
+    THREE.MathUtils.lerp(camera.position.x, center * 0.42, 0.075),
+    THREE.MathUtils.lerp(camera.position.y, 2.18, 0.04),
+    THREE.MathUtils.lerp(camera.position.z, THREE.MathUtils.clamp(5.6 + distance * 0.64, 6.1, 8.2), 0.055),
+  );
+  gameplayCameraPose.lookAt.set(center * 0.28, 1.1, 0);
+  gameplayCameraPose.fov = 40;
+  cameraDirector.update(delta, gameplayCameraPose);
+}
+
+function constrainRootMotion(combatant) {
+  const { rootBone, baseRootBonePosition } = combatant.model;
+
+  if (!rootBone || !baseRootBonePosition) {
+    return;
+  }
+
+  if (combatant.state.state !== STATES.JUMP && combatant.state.state !== STATES.JUMP_KICK) {
+    rootBone.position.y = baseRootBonePosition.y;
+    combatant.model.root.position.y = 0.02;
+  }
+
+  if (combatant.state.state === STATES.GRAB) {
+    rootBone.position.x = baseRootBonePosition.x;
+    rootBone.position.z = baseRootBonePosition.z;
+  }
 }
 
 function createHud() {
@@ -257,7 +427,7 @@ function createHud() {
     <div class="center-message" data-message></div>
     <div class="event-log" data-events></div>
     <div class="controls">
-      <span>A/D: move</span><span>S: crouch</span><span>L: block</span><span>J: jab</span><span>K: kick</span><span>I: roundhouse</span><span>U: heavy</span><span>O: grab/break</span><span>R: reset</span>
+      <span>A/D: move</span><span>W/Space: jump</span><span>S: crouch</span><span>L: block</span><span>J: jab</span><span>K: kick</span><span>W+K: jump kick</span><span>H: hurricane</span><span>M: martelo</span><span>I: roundhouse</span><span>U: heavy</span><span>O: grab/break</span><span>R: reset</span>
     </div>
   `;
   document.body.append(root);
@@ -299,12 +469,97 @@ window.addEventListener('resize', resize);
 resize();
 
 function randomStance() {
-  return stanceOptions[Math.floor(Math.random() * stanceOptions.length)];
+  const randomStanceOptions = stanceOptions.filter((stance) => stance.name !== 'sumo');
+  return randomStanceOptions[Math.floor(Math.random() * randomStanceOptions.length)];
+}
+
+function randomModelPair() {
+  const playerIndex = Math.floor(Math.random() * modelOptions.length);
+  let opponentIndex = Math.floor(Math.random() * modelOptions.length);
+
+  if (modelOptions.length > 1) {
+    while (opponentIndex === playerIndex) {
+      opponentIndex = Math.floor(Math.random() * modelOptions.length);
+    }
+  }
+
+  return [modelOptions[playerIndex], modelOptions[opponentIndex]];
+}
+
+function selectPngBackground() {
+  if (pngBackgroundOptions.length === 0) {
+    return null;
+  }
+
+  const festival = pngBackgroundOptions.find((background) => background.name === 'festival');
+  return festival ?? pngBackgroundOptions[Math.floor(Math.random() * pngBackgroundOptions.length)];
+}
+
+function createBackgroundOptions() {
+  const plyByName = Object.fromEntries(
+    Object.entries(plyBackgroundModules).map(([path, url]) => [
+      path.split('/').pop()?.replace(/\.ply$/i, '') ?? 'background',
+      url,
+    ]),
+  );
+
+  return Object.entries(pngBackgroundModules).map(([path, url]) => {
+    const name = path.split('/').pop()?.replace(/\.png$/i, '') ?? 'background';
+
+    return {
+      name,
+      url,
+      plyUrl: plyByName[name] ?? null,
+    };
+  });
+}
+
+function createAnimationMap() {
+  return {
+    jab: jabAnimUrl,
+    heavy: heavyAnimUrl,
+    kick: kickAnimUrl,
+    jump: jumpAnimUrl,
+    jumpKick: jumpKickAnimUrl,
+    hurricaneKick: hurricaneKickAnimUrl,
+    marteloKick: marteloKickAnimUrl,
+    roundhouse: roundhouseAnimUrl,
+    grab: grabAnimUrl,
+    hithead: hitHeadUrl,
+    'hithead-big': hitHeadBigUrl,
+    'hithead-big-1': hitHeadBigOneUrl,
+    'hithead-big-2': hitHeadBigTwoUrl,
+    hitbody: hitBodyUrl,
+    'hitbody-1': hitBodyOneUrl,
+    'hitbody-2': hitBodyTwoUrl,
+    'hitbody-big': hitBodyBigUrl,
+    death: deathUrl,
+    'death-fallback': deathFallbackUrl,
+    'death-fallback-1': deathFallbackOneUrl,
+    'death-flyingback': deathFlyingBackUrl,
+    'death-standing-left': deathStandingLeftUrl,
+    'death-shield': deathShieldUrl,
+    'death-twohand': deathTwoHandUrl,
+  };
 }
 
 function updateAnimationAction(combatant) {
   const model = combatant.model;
-  const desiredAction = combatant.state.attack?.animation ?? null;
+  const hasActiveReaction =
+    Boolean(combatant.reactionAnimation) &&
+    (combatant.reactionTimer > 0 || combatant.reactionTimer === Infinity);
+  const canPlayReaction =
+    hasActiveReaction ||
+    combatant.health <= 0 ||
+    combatant.state.state === STATES.HITSTUN ||
+    combatant.state.state === STATES.KNOCKDOWN ||
+    combatant.state.state === STATES.GRABBED;
+
+  if (!canPlayReaction) {
+    combatant.reactionAnimation = null;
+  }
+
+  const desiredAction = (canPlayReaction ? combatant.reactionAnimation : null) ?? combatant.state.animation ?? null;
 
   if (model.currentActionName === desiredAction) {
     return;
@@ -322,7 +577,10 @@ function updateAnimationAction(combatant) {
 
     if (action && clip) {
       model.stanceAction?.fadeOut(0.06);
-      action.timeScale = clip.duration / Math.max(combatant.state.duration, 0.001);
+      const targetDuration = desiredAction.startsWith('death')
+        ? clip.duration
+        : Math.max(combatant.reactionTimer || 0, combatant.state.duration);
+      action.timeScale = clip.duration / Math.max(targetDuration, 0.001);
       action.reset().fadeIn(0.04).play();
     }
   } else {
