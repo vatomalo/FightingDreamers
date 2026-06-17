@@ -152,7 +152,7 @@ async function runViewport(browser, viewport) {
   if (animationInfo.backgroundStatus.state === 'loaded') {
     assert(animationInfo.backgroundStatus.pointCount > 1000000, `festival background has point data, count was ${animationInfo.backgroundStatus.pointCount}`);
   }
-  assert(animationInfo.pngBackgroundOptionCount >= 1, 'runtime discovers PNG background choices');
+  assert(animationInfo.pngBackgroundOptionCount >= 4, 'runtime discovers all PNG background choices');
   assert(
     ['loaded', 'no-assets', 'disabled'].includes(animationInfo.pngBackgroundStatus.state),
     `PNG background is loaded or intentionally unavailable, status was ${JSON.stringify(animationInfo.pngBackgroundStatus)}`,

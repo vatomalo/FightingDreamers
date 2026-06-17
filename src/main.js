@@ -562,8 +562,7 @@ function selectPngBackground() {
     return null;
   }
 
-  const festival = pngBackgroundOptions.find((background) => background.name === 'festival');
-  return festival ?? pngBackgroundOptions[Math.floor(Math.random() * pngBackgroundOptions.length)];
+  return pngBackgroundOptions[Math.floor(Math.random() * pngBackgroundOptions.length)];
 }
 
 function createBackgroundOptions() {
@@ -574,15 +573,17 @@ function createBackgroundOptions() {
     ]),
   );
 
-  return Object.entries(pngBackgroundModules).map(([path, url]) => {
-    const name = path.split('/').pop()?.replace(/\.png$/i, '') ?? 'background';
+  return Object.entries(pngBackgroundModules)
+    .map(([path, url]) => {
+      const name = path.split('/').pop()?.replace(/\.png$/i, '') ?? 'background';
 
-    return {
-      name,
-      url,
-      plyUrl: plyByName[name] ?? null,
-    };
-  });
+      return {
+        name,
+        url,
+        plyUrl: plyByName[name] ?? null,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function createAnimationMap() {
