@@ -7,6 +7,7 @@ const MIN_BODY_DISTANCE = 0.78;
 const MIN_ATTACK_DISTANCE = 0.94;
 const COLLIDER_FORCE = 0.18;
 const COLLIDER_FRICTION = 0.72;
+const TARGET_WINS = 3;
 const colliderPointA = new THREE.Vector3();
 const colliderPointB = new THREE.Vector3();
 
@@ -72,6 +73,7 @@ export class FightGame {
     this.onHitConfirmed = onHitConfirmed;
     this.roundTime = 90;
     this.maxRoundTime = 90;
+    this.targetWins = TARGET_WINS;
     this.roundState = 'fight';
     this.message = 'Round 1';
     this.messageTimer = 1.15;
@@ -91,10 +93,14 @@ export class FightGame {
 
   update(delta) {
     if (this.input.wasPressed('KeyR')) {
-      this.resetRound();
+      this.resetMatch();
     }
 
     this.messageTimer = Math.max(0, this.messageTimer - delta);
+
+    if (this.roundState === 'matchOver') {
+      return;
+    }
 
     if (this.roundState !== 'fight') {
       if (this.messageTimer <= 0) {
@@ -409,14 +415,20 @@ export class FightGame {
       } else {
         winner = this.player.health > this.opponent.health ? this.player : this.opponent;
         winner.rounds++;
-        this.message = `${winner.name} wins`;
+        this.message = winner.rounds >= this.targetWins ? `${winner.name} wins the match` : `${winner.name} wins`;
       }
 
-      this.roundState = 'roundOver';
-      this.messageTimer = 2.2;
+      this.roundState = winner?.rounds >= this.targetWins ? 'matchOver' : 'roundOver';
+      this.messageTimer = this.roundState === 'matchOver' ? Infinity : 2.2;
       this.debug.roundOvers++;
       this.log(this.message);
     }
+  }
+
+  resetMatch() {
+    this.player.rounds = 0;
+    this.opponent.rounds = 0;
+    this.resetRound();
   }
 
   resetRound() {
@@ -448,6 +460,7 @@ export class FightGame {
       roundState: this.roundState,
       message: this.messageTimer > 0 ? this.message : '',
       roundTime: Math.ceil(this.roundTime),
+      targetWins: this.targetWins,
       player: combatantSnapshot(this.player),
       opponent: combatantSnapshot(this.opponent),
       events: [...this.eventLog],

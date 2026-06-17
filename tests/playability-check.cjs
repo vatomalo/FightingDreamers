@@ -487,6 +487,23 @@ async function runViewport(browser, viewport) {
   assert(Math.abs(afterAi.player.x - afterAi.opponent.x) >= 0.55, 'fighters do not collapse into each other');
   assert(Math.abs(afterAi.player.x) <= 4.25 && Math.abs(afterAi.opponent.x) <= 4.25, 'fighters stay inside arena bounds');
   assert(afterAi.roundTime < initial.roundTime, 'round timer advances');
+
+  const afterMatchPoint = await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.resetMatch();
+    game.player.rounds = game.targetWins - 1;
+    game.opponent.health = 0;
+    game.checkRoundEnd();
+    for (let i = 0; i < 180; i++) {
+      game.update(1 / 60);
+    }
+    return game.snapshot();
+  });
+  assert(afterMatchPoint.targetWins === 3, 'match target is first to 3 wins');
+  assert(afterMatchPoint.roundState === 'matchOver', 'third win stops the match');
+  assert(afterMatchPoint.player.rounds === 3, 'winner is held at 3 wins');
+  assert(afterMatchPoint.message.includes('wins the match'), 'match-over message is shown');
+
   assert(consoleErrors.length === 0, `browser errors: ${consoleErrors.join(' | ')}`);
 
   await page.close();
@@ -500,6 +517,7 @@ async function runViewport(browser, viewport) {
     afterJumpKick,
     afterGrab,
     afterAi,
+    afterMatchPoint,
   };
 }
 
