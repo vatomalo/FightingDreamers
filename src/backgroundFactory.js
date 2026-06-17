@@ -17,7 +17,7 @@ const BACKDROP_VERTICAL_REPEAT = 2;
 const GROUND_TEXTURE_SLICE_HEIGHT = 0.24;
 const SKY_SECTION_HEIGHT = 23;
 const STAGE_SECTION_HEIGHT = 14;
-const SKY_SECTION_Y = 7.5;
+const SKY_SECTION_Y = 9.1;
 const STAGE_SECTION_Y = -11.1;
 
 export async function createPngBackdrop({ url, skyUrl = null, name = 'png-backdrop', height = BACKDROP_PLACEMENT.height } = {}) {

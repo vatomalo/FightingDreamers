@@ -11,22 +11,18 @@ import './styles.css';
 const ENABLE_POINT_BACKGROUND = false;
 const ENABLE_PNG_BACKGROUND = true;
 const modelModules = import.meta.glob('../Models/*.fbx', {
-  eager: true,
   import: 'default',
   query: '?url',
 });
 const animationModules = import.meta.glob('../Models/Anim/*/*.fbx', {
-  eager: true,
   import: 'default',
   query: '?url',
 });
 const pngBackgroundModules = import.meta.glob('../Backgrounds/*.png', {
-  eager: true,
   import: 'default',
   query: '?url',
 });
 const plyBackgroundModules = import.meta.glob('../Backgrounds/*.ply', {
-  eager: true,
   import: 'default',
   query: '?url',
 });
@@ -94,6 +90,7 @@ const gameplayCameraPose = {
   lookAt: new THREE.Vector3(),
   fov: 42,
 };
+let gameplayCameraInitialized = false;
 const backgroundStatus = {
   state: 'idle',
   name: null,
@@ -122,11 +119,17 @@ async function init() {
   const playerStance = randomStance();
   const opponentStance = randomStance();
   const [playerModelOption, opponentModelOption] = randomModelPair();
-  const animations = createAnimationMap();
+  const [playerModelUrl, opponentModelUrl, playerStanceUrl, opponentStanceUrl, animations] = await Promise.all([
+    resolveAssetUrl(playerModelOption),
+    resolveAssetUrl(opponentModelOption),
+    resolveAssetUrl(playerStance),
+    resolveAssetUrl(opponentStance),
+    createAnimationMap(),
+  ]);
   const [playerModel, opponentModel] = await Promise.all([
     createFighterModel({
-      url: playerModelOption.url,
-      stanceUrl: playerStance.url,
+      url: playerModelUrl,
+      stanceUrl: playerStanceUrl,
       stanceName: playerStance.name,
       stanceClampFinal: playerStance.clampFinal,
       animations,
@@ -134,8 +137,8 @@ async function init() {
       fallback: { body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f },
     }),
     createFighterModel({
-      url: opponentModelOption.url,
-      stanceUrl: opponentStance.url,
+      url: opponentModelUrl,
+      stanceUrl: opponentStanceUrl,
       stanceName: opponentStance.name,
       stanceClampFinal: opponentStance.clampFinal,
       animations,
@@ -196,6 +199,11 @@ async function init() {
         attackState: 'heavy',
       });
     },
+    advanceCameraForTest: (steps = 1, step = 1 / 60) => {
+      for (let i = 0; i < steps; i++) {
+        cameraDirector.update(step, gameplayCameraPose);
+      }
+    },
   };
 
   clock.start();
@@ -237,9 +245,13 @@ async function loadSceneBackground(selectedBackground) {
   backgroundStatus.name = selectedBackground.name;
 
   try {
+    const [backgroundUrl, skyUrl] = await Promise.all([
+      resolveAssetUrl(selectedBackground),
+      selectedBackground.sky ? resolveAssetUrl(selectedBackground.sky) : null,
+    ]);
     const pngBackground = await createPngBackdrop({
-      url: selectedBackground.url,
-      skyUrl: selectedBackground.skyUrl,
+      url: backgroundUrl,
+      skyUrl,
       name: `${selectedBackground.name}-png-backdrop`,
     });
     pngBackgroundObject = pngBackground;
@@ -263,7 +275,7 @@ async function loadSceneBackground(selectedBackground) {
     return;
   }
 
-  if (!selectedBackground.plyUrl) {
+  if (!selectedBackground.ply) {
     backgroundStatus.state = 'no-assets';
     return;
   }
@@ -271,8 +283,9 @@ async function loadSceneBackground(selectedBackground) {
   backgroundStatus.state = 'loading';
 
   try {
+    const plyUrl = await resolveAssetUrl(selectedBackground.ply);
     const backdropSize = scene.getObjectByName(`${selectedBackground.name}-png-backdrop`)?.userData.backdropSize;
-    const pointBackground = await createGaussianPlyPointBackground(selectedBackground.plyUrl, {
+    const pointBackground = await createGaussianPlyPointBackground(plyUrl, {
       name: `${selectedBackground.name}-point-background`,
       width: backdropSize?.width,
       height: backdropSize?.height,
@@ -376,14 +389,35 @@ function setModelIntensity(model, scalar) {
 function updateCamera(delta) {
   const center = (player.position.x + opponent.position.x) / 2;
   const distance = Math.abs(player.position.x - opponent.position.x);
-  gameplayCameraPose.position.set(
-    THREE.MathUtils.lerp(camera.position.x, center * 0.42, 0.075),
-    THREE.MathUtils.lerp(camera.position.y, 2.18, 0.04),
-    THREE.MathUtils.lerp(camera.position.z, THREE.MathUtils.clamp(5.6 + distance * 0.64, 6.1, 8.2), 0.055),
-  );
-  gameplayCameraPose.lookAt.set(center * 0.28, 1.1, 0);
-  gameplayCameraPose.fov = 40;
+  const aspect = Math.max(camera.aspect, 0.65);
+  const horizontalNeed = distance / aspect;
+  const targetZ = THREE.MathUtils.clamp(4.85 + horizontalNeed * 1.18, 5.65, 7.45);
+  const targetY = THREE.MathUtils.clamp(1.95 + distance * 0.08, 2.05, 2.42);
+  const targetFov = THREE.MathUtils.clamp(36 + distance * 1.9, 38, 45);
+  const targetPosition = tempCameraPosition.set(center * 0.5, targetY, targetZ);
+  const targetLookAt = tempCameraLookAt.set(center * 0.36, 1.08 + distance * 0.035, 0);
+  const positionAlpha = dampAlpha(7.6, delta);
+  const lookAlpha = dampAlpha(9.2, delta);
+
+  if (!gameplayCameraInitialized) {
+    gameplayCameraPose.position.copy(targetPosition);
+    gameplayCameraPose.lookAt.copy(targetLookAt);
+    gameplayCameraPose.fov = targetFov;
+    gameplayCameraInitialized = true;
+  } else {
+    gameplayCameraPose.position.lerp(targetPosition, positionAlpha);
+    gameplayCameraPose.lookAt.lerp(targetLookAt, lookAlpha);
+    gameplayCameraPose.fov = THREE.MathUtils.lerp(gameplayCameraPose.fov, targetFov, dampAlpha(5.4, delta));
+  }
+
   cameraDirector.update(delta, gameplayCameraPose);
+}
+
+const tempCameraPosition = new THREE.Vector3();
+const tempCameraLookAt = new THREE.Vector3();
+
+function dampAlpha(speed, delta) {
+  return 1 - Math.exp(-speed * Math.min(delta, 1 / 20));
 }
 
 function constrainRootMotion(combatant) {
@@ -418,6 +452,7 @@ function createHud() {
         <small data-opponent-state></small>
       </section>
     </div>
+    <div class="style-label">STYLE: ${activeAnimationStyle.name}</div>
     <div class="center-message" data-message></div>
     <div class="event-log" data-events></div>
     <div class="controls">
@@ -464,9 +499,9 @@ resize();
 
 function createModelOptions() {
   return Object.entries(modelModules)
-    .map(([path, url]) => ({
+    .map(([path, load]) => ({
       name: assetNameFromPath(path, 'fbx'),
-      url,
+      load,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -512,7 +547,7 @@ function createAnimationStyles() {
 
   Object.entries(animationModules)
     .sort(([a], [b]) => a.localeCompare(b))
-    .forEach(([path, url]) => {
+    .forEach(([path, load]) => {
       const styleName = animationStyleNameFromPath(path);
       const fileName = assetNameFromPath(path, 'fbx');
       const fileKey = fileName.toLowerCase();
@@ -523,13 +558,13 @@ function createAnimationStyles() {
         style.stances.push({
           ...stanceByFile[fileKey],
           fileName,
-          url,
+          load,
         });
         return;
       }
 
       const actionName = actionByFile[fileKey] ?? fileName;
-      style.actions[actionName] = url;
+      style.actions[actionName] = { load };
     });
 
   Object.values(styles).forEach((style) => {
@@ -617,35 +652,58 @@ function selectPngBackground() {
 
 function createBackgroundOptions() {
   const plyByName = Object.fromEntries(
-    Object.entries(plyBackgroundModules).map(([path, url]) => [
+    Object.entries(plyBackgroundModules).map(([path, load]) => [
       path.split('/').pop()?.replace(/\.ply$/i, '') ?? 'background',
-      url,
+      { load },
     ]),
   );
   const skyByName = Object.fromEntries(
     Object.entries(pngBackgroundModules)
       .filter(([path]) => path.split('/').pop()?.startsWith('sky-'))
-      .map(([path, url]) => [path.split('/').pop()?.replace(/^sky-/i, '').replace(/\.png$/i, '') ?? 'background', url])
+      .map(([path, load]) => [path.split('/').pop()?.replace(/^sky-/i, '').replace(/\.png$/i, '') ?? 'background', { load }])
       .filter(([name]) => name !== 'background'),
   );
 
   return Object.entries(pngBackgroundModules)
     .filter(([path]) => !path.split('/').pop()?.startsWith('sky-'))
-    .map(([path, url]) => {
+    .map(([path, load]) => {
       const name = path.split('/').pop()?.replace(/\.png$/i, '') ?? 'background';
 
       return {
         name,
-        url,
-        plyUrl: plyByName[name] ?? null,
-        skyUrl: skyByName[name] ?? null,
+        load,
+        ply: plyByName[name] ?? null,
+        sky: skyByName[name] ?? null,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function createAnimationMap() {
-  return { ...activeAnimationStyle.actions };
+async function createAnimationMap() {
+  const entries = await Promise.all(
+    Object.entries(activeAnimationStyle.actions).map(async ([name, asset]) => [name, await resolveAssetUrl(asset)]),
+  );
+  return Object.fromEntries(entries);
+}
+
+async function resolveAssetUrl(asset) {
+  if (!asset) {
+    return null;
+  }
+
+  if (typeof asset === 'string') {
+    return asset;
+  }
+
+  if (typeof asset.load === 'function') {
+    return asset.load();
+  }
+
+  if (typeof asset.url === 'string') {
+    return asset.url;
+  }
+
+  return null;
 }
 
 function updateAnimationAction(combatant) {

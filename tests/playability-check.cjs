@@ -114,6 +114,13 @@ async function runViewport(browser, viewport) {
       animationStyleNames: window.__FIGHTING_DREAMERS__.animationStyleNames,
       animationStyleOptions: window.__FIGHTING_DREAMERS__.animationStyleOptions,
       activeAnimationStyleName: window.__FIGHTING_DREAMERS__.activeAnimationStyleName,
+      styleLabel: document.querySelector('.style-label')?.textContent ?? '',
+      boxingClipNames: {
+        stance: game.player.model.stanceClip?.name,
+        jab: game.player.model.actions.jab?.clip.name,
+        heavy: game.player.model.actions.heavy?.clip.name,
+        block: game.player.model.actions.blockbody?.clip.name,
+      },
       differentModels: game.player.model.sourceUrl !== game.opponent.model.sourceUrl,
     };
   });
@@ -171,6 +178,11 @@ async function runViewport(browser, viewport) {
   assert(animationInfo.animationStyleOptions.includes('boxing'), 'boxing style is complete');
   assert(animationInfo.animationStyleOptions.includes(animationInfo.activeAnimationStyleName), 'active animation style is complete');
   assert(animationInfo.activeAnimationStyleName === 'boxing', 'boxing style is preferred when available');
+  assert(animationInfo.styleLabel.toLowerCase().includes('boxing'), `HUD shows the active boxing style, label was ${animationInfo.styleLabel}`);
+  assert(animationInfo.boxingClipNames.stance === 'stance', 'boxing style supplies the stance clip');
+  assert(animationInfo.boxingClipNames.jab === 'jab', 'boxing style supplies the jab clip');
+  assert(animationInfo.boxingClipNames.heavy === 'heavy', 'boxing style supplies the heavy clip');
+  assert(animationInfo.boxingClipNames.block === 'blockbody', 'boxing style supplies the block clip');
   assert(animationInfo.differentModels, 'player and opponent choose different model files');
   assert(playerAiEnabledByDefault, 'player 1 starts with AI enabled');
   for (const [key, trackCount] of Object.entries(animationInfo.actionTrackCounts)) {
@@ -185,6 +197,14 @@ async function runViewport(browser, viewport) {
   const cameraDuringCinematic = await page.evaluate(() => ({ ...window.__FIGHTING_DREAMERS__.cameraDebug }));
   assert(cameraDuringCinematic.active, `cinematic camera activates, debug was ${JSON.stringify(cameraDuringCinematic)}`);
   assert(cameraDuringCinematic.sequenceCount >= 1, 'cinematic camera records a triggered sequence');
+  await page.evaluate(() => window.__FIGHTING_DREAMERS__.advanceCameraForTest(110, 1 / 60));
+  const cameraDuringFaceShot = await page.evaluate(() => ({ ...window.__FIGHTING_DREAMERS__.cameraDebug }));
+  assert(cameraDuringFaceShot.faceShotCount >= 1, `face close-up is reached, debug was ${JSON.stringify(cameraDuringFaceShot)}`);
+  assert(cameraDuringFaceShot.minFov <= 34, `camera narrows for impact and face beats, debug was ${JSON.stringify(cameraDuringFaceShot)}`);
+  assert(
+    cameraDuringFaceShot.radius <= cameraDuringFaceShot.boundaryRadius + 0.001,
+    `camera stays inside the backdrop cylinder, debug was ${JSON.stringify(cameraDuringFaceShot)}`,
+  );
   await page.waitForTimeout(900);
 
   await page.keyboard.press('KeyR');

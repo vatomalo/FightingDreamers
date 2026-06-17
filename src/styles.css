@@ -104,6 +104,23 @@ body {
   line-height: 1;
 }
 
+.style-label {
+  position: fixed;
+  top: 82px;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  background: rgba(7, 12, 18, 0.62);
+  padding: 6px 9px;
+  color: #d8e4ed;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+}
+
 .center-message {
   position: fixed;
   top: 20%;
@@ -183,6 +200,11 @@ body {
     top: 17%;
     min-width: 180px;
     font-size: 24px;
+  }
+
+  .style-label {
+    top: 62px;
+    font-size: 10px;
   }
 
   .event-log {
