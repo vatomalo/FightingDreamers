@@ -6,45 +6,20 @@ import { CinematicCameraDirector } from './cinematicCamera.js';
 import { createArena, createFighterModel } from './fighterFactory.js';
 import { InputBuffer } from './input.js';
 import { STATES } from './animationStateMachine.js';
-import modelOneUrl from '../Models/T-Pose (4).fbx?url';
-import modelTwoUrl from '../Models/T-Pose (5).fbx?url';
-import modelThreeUrl from '../Models/T-Pose (6).fbx?url';
-import modelFourUrl from '../Models/T-Pose (7).fbx?url';
-import modelFiveUrl from '../Models/T-Pose (8).fbx?url';
-import stanceDefaultUrl from '../Models/Anim/StanceAnim.fbx?url';
-import stanceSumoUrl from '../Models/Anim/stanceSumo.fbx?url';
-import stanceTwoHandUrl from '../Models/Anim/stance2hand.fbx?url';
-import stanceJeetKuneDoUrl from '../Models/Anim/stanceJeetkundo.fbx?url';
-import stanceFightUrl from '../Models/Anim/stancefight.fbx?url';
-import stanceCapoeiraUrl from '../Models/Anim/stancecapoeira.fbx?url';
-import jabAnimUrl from '../Models/Anim/lpunch.fbx?url';
-import heavyAnimUrl from '../Models/Anim/rpunch.fbx?url';
-import kickAnimUrl from '../Models/Anim/rkick.fbx?url';
-import jumpAnimUrl from '../Models/Anim/jump.fbx?url';
-import jumpKickAnimUrl from '../Models/Anim/jumpkick.fbx?url';
-import hurricaneKickAnimUrl from '../Models/Anim/kickhurricane.fbx?url';
-import marteloKickAnimUrl from '../Models/Anim/kickmartelo.fbx?url';
-import roundhouseAnimUrl from '../Models/Anim/lkick.fbx?url';
-import grabAnimUrl from '../Models/Anim/grabflipkick.fbx?url';
-import hitHeadUrl from '../Models/Anim/hithead.fbx?url';
-import hitHeadBigUrl from '../Models/Anim/hithead-big.fbx?url';
-import hitHeadBigOneUrl from '../Models/Anim/hithead-big-1.fbx?url';
-import hitHeadBigTwoUrl from '../Models/Anim/hithead-big-2.fbx?url';
-import hitBodyUrl from '../Models/Anim/hitbody.fbx?url';
-import hitBodyOneUrl from '../Models/Anim/hitbody-1.fbx?url';
-import hitBodyTwoUrl from '../Models/Anim/hitbody-2.fbx?url';
-import hitBodyBigUrl from '../Models/Anim/hitbody-big.fbx?url';
-import deathUrl from '../Models/Anim/death.fbx?url';
-import deathFallbackUrl from '../Models/Anim/death-fallback.fbx?url';
-import deathFallbackOneUrl from '../Models/Anim/death-fallback-1.fbx?url';
-import deathFlyingBackUrl from '../Models/Anim/death-flyingback.fbx?url';
-import deathStandingLeftUrl from '../Models/Anim/death-standing-left.fbx?url';
-import deathShieldUrl from '../Models/Anim/death-shield.fbx?url';
-import deathTwoHandUrl from '../Models/Anim/death-twohand.fbx?url';
 import './styles.css';
 
 const ENABLE_POINT_BACKGROUND = false;
 const ENABLE_PNG_BACKGROUND = true;
+const modelModules = import.meta.glob('../Models/*.fbx', {
+  eager: true,
+  import: 'default',
+  query: '?url',
+});
+const animationModules = import.meta.glob('../Models/Anim/**/*.fbx', {
+  eager: true,
+  import: 'default',
+  query: '?url',
+});
 const pngBackgroundModules = import.meta.glob('../Backgrounds/*.png', {
   eager: true,
   import: 'default',
@@ -56,16 +31,10 @@ const plyBackgroundModules = import.meta.glob('../Backgrounds/*.ply', {
   query: '?url',
 });
 const pngBackgroundOptions = createBackgroundOptions();
-const modelOptions = [modelOneUrl, modelTwoUrl, modelThreeUrl, modelFourUrl, modelFiveUrl];
-
-const stanceOptions = [
-  { name: 'default', url: stanceDefaultUrl, clampFinal: false },
-  { name: 'sumo', url: stanceSumoUrl, clampFinal: true },
-  { name: 'twoHand', url: stanceTwoHandUrl, clampFinal: false },
-  { name: 'jeetKuneDo', url: stanceJeetKuneDoUrl, clampFinal: false },
-  { name: 'fight', url: stanceFightUrl, clampFinal: false },
-  { name: 'capoeira', url: stanceCapoeiraUrl, clampFinal: false },
-];
+const modelOptions = createModelOptions();
+const animationStyles = createAnimationStyles();
+const activeAnimationStyle = animationStyles.default ?? Object.values(animationStyles)[0] ?? createEmptyAnimationStyle('default');
+const stanceOptions = activeAnimationStyle.stances;
 
 const canvas = document.querySelector('#game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -135,11 +104,11 @@ async function init() {
   }
   const playerStance = randomStance();
   const opponentStance = randomStance();
-  const [playerModelUrl, opponentModelUrl] = randomModelPair();
+  const [playerModelOption, opponentModelOption] = randomModelPair();
   const animations = createAnimationMap();
   const [playerModel, opponentModel] = await Promise.all([
     createFighterModel({
-      url: playerModelUrl,
+      url: playerModelOption.url,
       stanceUrl: playerStance.url,
       stanceName: playerStance.name,
       stanceClampFinal: playerStance.clampFinal,
@@ -148,7 +117,7 @@ async function init() {
       fallback: { body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f },
     }),
     createFighterModel({
-      url: opponentModelUrl,
+      url: opponentModelOption.url,
       stanceUrl: opponentStance.url,
       stanceName: opponentStance.name,
       stanceClampFinal: opponentStance.clampFinal,
@@ -173,6 +142,8 @@ async function init() {
   window.__FIGHTING_DREAMERS__ = {
     game,
     modelOptions,
+    animationStyleNames: Object.keys(animationStyles),
+    activeAnimationStyleName: activeAnimationStyle.name,
     backgroundStatus,
     pngBackgroundStatus,
     pngBackgroundOptions,
@@ -468,9 +439,109 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+function createModelOptions() {
+  return Object.entries(modelModules)
+    .map(([path, url]) => ({
+      name: assetNameFromPath(path, 'fbx'),
+      url,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function createAnimationStyles() {
+  const styles = {};
+  const stanceByFile = {
+    stanceanim: { name: 'default', order: 0, clampFinal: false },
+    stancesumo: { name: 'sumo', order: 1, clampFinal: true },
+    stance2hand: { name: 'twoHand', order: 2, clampFinal: false },
+    stancejeetkundo: { name: 'jeetKuneDo', order: 3, clampFinal: false },
+    stancefight: { name: 'fight', order: 4, clampFinal: false },
+    stancecapoeira: { name: 'capoeira', order: 5, clampFinal: false },
+  };
+  const actionByFile = {
+    lpunch: 'jab',
+    rpunch: 'heavy',
+    rkick: 'kick',
+    jump: 'jump',
+    jumpkick: 'jumpKick',
+    kickhurricane: 'hurricaneKick',
+    kickmartelo: 'marteloKick',
+    lkick: 'roundhouse',
+    grabflipkick: 'grab',
+    blockbody: 'blockbody',
+    hithead: 'hithead',
+    'hithead-big': 'hithead-big',
+    'hithead-big-1': 'hithead-big-1',
+    'hithead-big-2': 'hithead-big-2',
+    'hithead-2': 'hithead-2',
+    hitbody: 'hitbody',
+    'hitbody-1': 'hitbody-1',
+    'hitbody-2': 'hitbody-2',
+    'hitbody-big': 'hitbody-big',
+    death: 'death',
+    'death-fallback': 'death-fallback',
+    'death-fallback-1': 'death-fallback-1',
+    'death-flyingback': 'death-flyingback',
+    'death-standing-left': 'death-standing-left',
+    'death-shield': 'death-shield',
+    'death-twohand': 'death-twohand',
+  };
+
+  Object.entries(animationModules)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .forEach(([path, url]) => {
+      const styleName = animationStyleNameFromPath(path);
+      const fileName = assetNameFromPath(path, 'fbx');
+      const fileKey = fileName.toLowerCase();
+      const style = styles[styleName] ?? createEmptyAnimationStyle(styleName);
+      styles[styleName] = style;
+
+      if (stanceByFile[fileKey]) {
+        style.stances.push({
+          ...stanceByFile[fileKey],
+          fileName,
+          url,
+        });
+        return;
+      }
+
+      const actionName = actionByFile[fileKey] ?? fileName;
+      style.actions[actionName] = url;
+    });
+
+  Object.values(styles).forEach((style) => {
+    style.stances.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
+  });
+
+  return styles;
+}
+
+function createEmptyAnimationStyle(name) {
+  return {
+    name,
+    actions: {},
+    stances: [],
+  };
+}
+
+function animationStyleNameFromPath(path) {
+  const normalized = path.replaceAll('\\', '/');
+  return normalized.match(/\/Anim\/([^/]+)\//)?.[1] ?? 'default';
+}
+
+function assetNameFromPath(path, extension) {
+  const escapedExtension = extension.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return path
+    .replaceAll('\\', '/')
+    .split('/')
+    .pop()
+    .replace(new RegExp(`\\.${escapedExtension}$`, 'i'), '');
+}
+
 function randomStance() {
   const randomStanceOptions = stanceOptions.filter((stance) => stance.name !== 'sumo');
-  return randomStanceOptions[Math.floor(Math.random() * randomStanceOptions.length)];
+  const availableStances = randomStanceOptions.length > 0 ? randomStanceOptions : stanceOptions;
+  return availableStances[Math.floor(Math.random() * availableStances.length)];
 }
 
 function randomModelPair() {
@@ -515,32 +586,7 @@ function createBackgroundOptions() {
 }
 
 function createAnimationMap() {
-  return {
-    jab: jabAnimUrl,
-    heavy: heavyAnimUrl,
-    kick: kickAnimUrl,
-    jump: jumpAnimUrl,
-    jumpKick: jumpKickAnimUrl,
-    hurricaneKick: hurricaneKickAnimUrl,
-    marteloKick: marteloKickAnimUrl,
-    roundhouse: roundhouseAnimUrl,
-    grab: grabAnimUrl,
-    hithead: hitHeadUrl,
-    'hithead-big': hitHeadBigUrl,
-    'hithead-big-1': hitHeadBigOneUrl,
-    'hithead-big-2': hitHeadBigTwoUrl,
-    hitbody: hitBodyUrl,
-    'hitbody-1': hitBodyOneUrl,
-    'hitbody-2': hitBodyTwoUrl,
-    'hitbody-big': hitBodyBigUrl,
-    death: deathUrl,
-    'death-fallback': deathFallbackUrl,
-    'death-fallback-1': deathFallbackOneUrl,
-    'death-flyingback': deathFlyingBackUrl,
-    'death-standing-left': deathStandingLeftUrl,
-    'death-shield': deathShieldUrl,
-    'death-twohand': deathTwoHandUrl,
-  };
+  return { ...activeAnimationStyle.actions };
 }
 
 function updateAnimationAction(combatant) {

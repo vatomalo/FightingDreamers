@@ -111,6 +111,8 @@ async function runViewport(browser, viewport) {
         ]),
       ),
       modelOptionCount: window.__FIGHTING_DREAMERS__.modelOptions.length,
+      animationStyleNames: window.__FIGHTING_DREAMERS__.animationStyleNames,
+      activeAnimationStyleName: window.__FIGHTING_DREAMERS__.activeAnimationStyleName,
       differentModels: game.player.model.sourceUrl !== game.opponent.model.sourceUrl,
     };
   });
@@ -160,6 +162,8 @@ async function runViewport(browser, viewport) {
     assert(animationInfo.pngBackgroundStatus.height > 0, `PNG background reports image height, status was ${JSON.stringify(animationInfo.pngBackgroundStatus)}`);
   }
   assert(animationInfo.modelOptionCount >= 5, 'runtime has all added fighter model choices');
+  assert(animationInfo.animationStyleNames.includes('default'), 'runtime discovers the default animation style folder');
+  assert(animationInfo.activeAnimationStyleName === 'default', 'default animation style is active');
   assert(animationInfo.differentModels, 'player and opponent choose different model files');
   assert(playerAiEnabledByDefault, 'player 1 starts with AI enabled');
   for (const [key, trackCount] of Object.entries(animationInfo.actionTrackCounts)) {

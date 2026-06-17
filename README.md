@@ -2,7 +2,7 @@
 
 Quick Three.js prototype for a KOF/Tekken-inspired 2.5D fighting game loop with a playable character, autonomous CPU opponent, hit detection, blocking, health, rounds, and a browser playability check.
 
-The fighters use the FBX character models in `Models/`, randomly choose a ready stance from `Models/Anim`, and use root-motion-authored action clips for attacks. Only the sumo stance holds on its final frame; the other stances loop.
+The fighters auto-discover every top-level FBX character model in `Models/`, randomly choose a ready stance from the active animation style, and use root-motion-authored action clips for attacks. Current clips live in `Models/Anim/default/`; add future style folders beside `default` with the same clip names. Only the sumo stance holds on its final frame; the other stances loop.
 
 ## Run
 
