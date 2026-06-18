@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import { AnimationStateMachine, STATES } from './animationStateMachine.js';
 
-const GRAB_CONTACT_DISTANCE = 0.58;
+const GRAB_CONTACT_DISTANCE = 0.72;
 const GRAB_SEEK_SPEED = 5.8;
-const MIN_BODY_DISTANCE = 0.78;
-const MIN_ATTACK_DISTANCE = 0.94;
+const MIN_BODY_DISTANCE = 0.96;
+const MIN_ATTACK_DISTANCE = 1.08;
 const COLLIDER_FORCE = 0.18;
 const COLLIDER_FRICTION = 0.72;
 const TARGET_WINS = 3;

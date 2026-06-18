@@ -174,8 +174,10 @@ async function runViewport(browser, viewport) {
   assert(animationInfo.modelOptionCount >= 5, 'runtime has all added fighter model choices');
   assert(animationInfo.animationStyleNames.includes('default'), 'runtime discovers the default animation style folder');
   assert(animationInfo.animationStyleNames.includes('boxing'), 'runtime discovers the boxing animation style folder');
+  assert(animationInfo.animationStyleNames.includes('hooligan'), 'runtime discovers the hooligan animation style folder');
   assert(animationInfo.animationStyleOptions.includes('default'), 'default style is complete');
   assert(animationInfo.animationStyleOptions.includes('boxing'), 'boxing style is complete');
+  assert(animationInfo.animationStyleOptions.includes('hooligan'), 'hooligan style is complete');
   assert(animationInfo.animationStyleOptions.includes(animationInfo.activeAnimationStyleName), 'active animation style is complete');
   assert(animationInfo.activeAnimationStyleName === 'boxing', 'boxing style is preferred when available');
   assert(animationInfo.styleLabel.toLowerCase().includes('boxing'), `HUD shows the active boxing style, label was ${animationInfo.styleLabel}`);
@@ -517,9 +519,9 @@ async function runViewport(browser, viewport) {
   const afterGrab = await snapshot(page);
   assert(afterGrab.debug.throws >= 1, 'grab starts a throw');
   assert(afterGrab.debug.hits >= 1, 'throw applies damage through combat resolver');
-  assert(grabContact.duringDistance >= 0.55, `grab should stop at contact distance, distance was ${grabContact.duringDistance}`);
-  assert(grabContact.minSignedGap >= 0.575, `grab attacker should never cross contact, min gap was ${grabContact.minSignedGap}`);
-  assert(grabContact.maxSignedGap < 1.35, `grab should seek contact instead of overshooting away, max gap was ${grabContact.maxSignedGap}`);
+  assert(grabContact.duringDistance >= 0.69, `grab should stop at contact distance, distance was ${grabContact.duringDistance}`);
+  assert(grabContact.minSignedGap >= 0.715, `grab attacker should never cross contact, min gap was ${grabContact.minSignedGap}`);
+  assert(grabContact.maxSignedGap < 1.45, `grab should seek contact instead of overshooting away, max gap was ${grabContact.maxSignedGap}`);
   assert(grabContact.maxGrabRootDepthDelta < 0.001, `grab visual root depth should be locked, delta was ${grabContact.maxGrabRootDepthDelta}`);
   assert(afterGrab.opponent.health <= 82, `throw should deal root-motion grab damage, health was ${afterGrab.opponent.health}`);
   assert(afterGrab.opponent.x > 0.85, `throw root motion should move defender, x was ${afterGrab.opponent.x}`);
@@ -539,7 +541,7 @@ async function runViewport(browser, viewport) {
   assert(afterAi.debug.playerAttacks > 0, 'autonomous player 1 attacks');
   assert(afterAi.debug.hits + afterAi.debug.blocked > 0, 'combat produces hits or blocks');
   assert(afterAi.player.health < 100 || afterAi.opponent.health < 100, 'health changes after combat');
-  assert(Math.abs(afterAi.player.x - afterAi.opponent.x) >= 0.55, 'fighters do not collapse into each other');
+  assert(Math.abs(afterAi.player.x - afterAi.opponent.x) >= 0.82, 'fighters do not collapse into each other');
   assert(Math.abs(afterAi.player.x) <= 4.25 && Math.abs(afterAi.opponent.x) <= 4.25, 'fighters stay inside arena bounds');
   assert(afterAi.roundTime < initial.roundTime, 'round timer advances');
 

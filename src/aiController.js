@@ -3,10 +3,10 @@ export class AiController {
     this.intent = new VirtualInput();
     this.seed = seed;
     this.personality = {
-      preferredMin: 1.08,
-      preferredMax: 1.42,
-      retreatRange: 0.92,
-      farRange: 2.15,
+      preferredMin: 1.24,
+      preferredMax: 1.62,
+      retreatRange: 1.08,
+      farRange: 2.35,
       reactionDelay: 0.22,
     };
     this.reset();
@@ -64,13 +64,13 @@ export class AiController {
       return this.intent;
     }
 
-    if (opponent.state.state === 'grab' && distance < 0.82 && this.random() < 0.28) {
+    if (opponent.state.state === 'grab' && distance < 0.96 && this.random() < 0.28) {
       this.intent.press('KeyO');
       this.attackCooldown = 0.5;
       return this.intent;
     }
 
-    if (this.attackCooldown <= 0 && distance > 0.86 && distance < 1.36) {
+    if (this.attackCooldown <= 0 && distance > 1.02 && distance < 1.58) {
       this.chooseAttack(distance);
       return this.intent;
     }
@@ -96,19 +96,19 @@ export class AiController {
   }
 
   chooseAttack(distance) {
-    if (distance > 1.18 && distance < 1.58 && this.random() < 0.28) {
+    if (distance > 1.32 && distance < 1.78 && this.random() < 0.28) {
       this.startMacro('jumpKick', 0.42);
       this.attackCooldown = 1.25;
-    } else if (distance > 1.12 && this.random() < 0.34) {
+    } else if (distance > 1.24 && this.random() < 0.34) {
       this.intent.press('KeyH');
       this.attackCooldown = 1.15;
-    } else if (distance > 0.92 && this.random() < 0.38) {
+    } else if (distance > 1.08 && this.random() < 0.38) {
       this.intent.press('KeyM');
       this.attackCooldown = 0.98;
-    } else if (distance < 0.72 && this.random() < 0.34) {
+    } else if (distance < 0.9 && this.random() < 0.34) {
       this.intent.press('KeyO');
       this.attackCooldown = 1.2;
-    } else if (distance > 1.02) {
+    } else if (distance > 1.16) {
       this.intent.press('KeyI');
       this.attackCooldown = 0.9;
     } else if (this.random() < 0.46) {
@@ -124,13 +124,13 @@ export class AiController {
   }
 
   chooseWhiffPunish(distance) {
-    if (distance > 1.34) {
+    if (distance > 1.5) {
       this.startMacro('dashIn', 0.16);
       this.attackCooldown = 0.18;
-    } else if (distance > 1.08) {
+    } else if (distance > 1.22) {
       this.intent.press('KeyH');
       this.attackCooldown = 1.0;
-    } else if (distance > 0.88) {
+    } else if (distance > 1.02) {
       this.intent.press('KeyM');
       this.attackCooldown = 0.9;
     } else {
@@ -148,7 +148,7 @@ export class AiController {
 
     const hasPassedActiveFrames = opponent.state.elapsed > attack.activeTo;
     const whiffedBySpacing = distance > attack.range + 0.08;
-    return hasPassedActiveFrames && whiffedBySpacing && distance < 1.72;
+    return hasPassedActiveFrames && whiffedBySpacing && distance < 1.9;
   }
 
   threatRange(opponent) {
