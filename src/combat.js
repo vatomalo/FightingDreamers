@@ -5,8 +5,15 @@ const GRAB_CONTACT_DISTANCE = 0.72;
 const GRAB_SEEK_SPEED = 5.8;
 const MIN_BODY_DISTANCE = 0.96;
 const MIN_ATTACK_DISTANCE = 1.08;
+const STRIKE_CONTACT_DISTANCE = 1.08;
+const FOOT_CONTACT_DISTANCE = 1.16;
 const COLLIDER_FORCE = 0.18;
 const COLLIDER_FRICTION = 0.72;
+const SIDE_STEP_LIMIT = 0.38;
+const SIDE_STEP_DISTANCE = 0.26;
+const SIDE_STEP_RECENTER_SPEED = 1.15;
+const DEPTH_HIT_SCALE = 0.72;
+const DEPTH_SPACING_THRESHOLD = 0.7;
 const TARGET_WINS = 3;
 const colliderPointA = new THREE.Vector3();
 const colliderPointB = new THREE.Vector3();
@@ -20,6 +27,10 @@ export class Combatant {
     this.position = model.root.position;
     this.position.set(x, 0.02, 0);
     this.velocity = 0;
+    this.zVelocity = 0;
+    this.sideStepState = null;
+    this.sideStepFromZ = 0;
+    this.sideStepTargetZ = 0;
     this.health = 100;
     this.rounds = 0;
     this.facing = x < 0 ? 1 : -1;
@@ -34,6 +45,10 @@ export class Combatant {
   reset(x) {
     this.position.set(x, 0.02, 0);
     this.velocity = 0;
+    this.zVelocity = 0;
+    this.sideStepState = null;
+    this.sideStepFromZ = 0;
+    this.sideStepTargetZ = 0;
     this.health = 100;
     this.facing = x < 0 ? 1 : -1;
     this.flash = 0;
@@ -150,8 +165,8 @@ export class FightGame {
     const targetX = getContactX(attacker, defender);
     const nextX = moveToward(attacker.position.x, targetX, GRAB_SEEK_SPEED * delta);
     attacker.position.x = clamp(nextX, -4.2, 4.2);
+    attacker.position.z = moveToward(attacker.position.z, defender.position.z, GRAB_SEEK_SPEED * 0.72 * delta);
     stopAtContact(attacker, defender);
-    attacker.position.z = 0;
   }
 
   countAttacks(player, opponent) {
@@ -182,13 +197,38 @@ export class FightGame {
         }
       }
 
+      if (combatant.state.sideMove) {
+        this.resolveSideStep(combatant);
+      } else {
+        combatant.sideStepState = null;
+        combatant.position.z = moveToward(combatant.position.z, 0, SIDE_STEP_RECENTER_SPEED * delta);
+        combatant.zVelocity *= Math.pow(0.001, delta);
+        combatant.position.z += combatant.zVelocity * delta;
+      }
+
       combatant.velocity += speed * delta * 16;
       combatant.velocity *= Math.pow(0.001, delta);
       combatant.position.x += combatant.velocity * delta;
       combatant.position.x = clamp(combatant.position.x, -4.2, 4.2);
+      combatant.position.z = clamp(combatant.position.z, -SIDE_STEP_LIMIT, SIDE_STEP_LIMIT);
     }
 
     this.keepSpacing();
+  }
+
+  resolveSideStep(combatant) {
+    if (combatant.sideStepState !== combatant.state.state) {
+      combatant.sideStepState = combatant.state.state;
+      combatant.sideStepFromZ = combatant.position.z;
+      combatant.sideStepTargetZ = clamp(
+        combatant.position.z + combatant.state.sideMove * SIDE_STEP_DISTANCE,
+        -SIDE_STEP_LIMIT,
+        SIDE_STEP_LIMIT,
+      );
+      combatant.zVelocity = 0;
+    }
+
+    combatant.position.z = lerp(combatant.sideStepFromZ, combatant.sideStepTargetZ, easeInOutCubic(combatant.state.progress));
   }
 
   keepSpacing() {
@@ -198,6 +238,12 @@ export class FightGame {
       : this.player.state.attack || this.opponent.state.attack
         ? MIN_ATTACK_DISTANCE
         : MIN_BODY_DISTANCE;
+    const zDistance = Math.abs(this.opponent.position.z - this.player.position.z);
+
+    if (zDistance > DEPTH_SPACING_THRESHOLD) {
+      return;
+    }
+
     const distance = this.opponent.position.x - this.player.position.x;
     const overlap = minDistance - Math.abs(distance);
 
@@ -221,7 +267,7 @@ export class FightGame {
     }
 
     const isBlocking = defender.state.state === STATES.BLOCK && defender.facing === -attacker.facing;
-    const distance = Math.abs(defender.position.x - attacker.position.x);
+    const distance = attackDistance(attacker, defender);
     const sphereHitInfo = resolveHitSpheres(attacker, defender, attack, distance);
     const hitInfo = sphereHitInfo === undefined
       ? resolveMissingColliderFallback(attacker, defender, attack, distance)
@@ -238,9 +284,10 @@ export class FightGame {
     defender.health = Math.max(0, defender.health - damage);
     defender.lastHitZone = hitInfo.zone;
     this.applyHitPush(attacker, defender, attack, isBlocking, falloff, hitInfo);
+    const launchPower = isBlocking ? 0 : this.applyCinematicLaunch(attacker, defender, attack, damage, falloff);
     defender.flash = isBlocking ? 0.12 : 0.2;
     this.hitstopTimer = Math.max(this.hitstopTimer, isBlocking ? 0.045 : attack.hitstop * falloff);
-    this.emitHitConfirmed({ attacker, defender, attack, damage, isBlocking, hitInfo });
+    this.emitHitConfirmed({ attacker, defender, attack, damage, isBlocking, hitInfo, launchPower });
 
     if (isBlocking) {
       this.debug.blocked++;
@@ -255,7 +302,7 @@ export class FightGame {
     }
   }
 
-  emitHitConfirmed({ attacker, defender, attack, damage, isBlocking, hitInfo }) {
+  emitHitConfirmed({ attacker, defender, attack, damage, isBlocking, hitInfo, launchPower = 0 }) {
     if (!this.onHitConfirmed) {
       return;
     }
@@ -269,6 +316,8 @@ export class FightGame {
       hitDirection: new THREE.Vector3(attacker.facing, 0, 0),
       severity: THREE.MathUtils.clamp(damage / 18, 0, 1),
       rawDamage: damage,
+      launchPower,
+      chargeLevel: attack.chargeLevel ?? 0,
       isBlocked: isBlocking,
       isKill: defender.health <= 0,
       reactionType: hitInfo?.zone ?? 'body',
@@ -282,6 +331,7 @@ export class FightGame {
     const colliderOverlap = Math.max(hitInfo?.overlap ?? 0, 0);
     const colliderForce = colliderOverlap * COLLIDER_FORCE * blockScale;
 
+    this.stopStrikeAtContact(attacker, defender, hitInfo);
     defender.velocity *= COLLIDER_FRICTION;
     attacker.velocity *= COLLIDER_FRICTION;
     defender.velocity += (attack.knockback + defenderPush + colliderForce) * attacker.facing * blockScale;
@@ -289,6 +339,46 @@ export class FightGame {
     defender.position.x = clamp(defender.position.x + (defenderPush * 0.13 + colliderForce * 0.08) * attacker.facing, -4.2, 4.2);
     attacker.position.x = clamp(attacker.position.x - (attackerPush * 0.08 + colliderForce * 0.04) * attacker.facing, -4.2, 4.2);
     this.keepSpacing();
+  }
+
+  applyCinematicLaunch(attacker, defender, attack, damage, falloff) {
+    const launchByState = {
+      [STATES.HEAVY]: 0.48,
+      [STATES.JUMP_KICK]: 0.62,
+      [STATES.HURRICANE_KICK]: 0.58,
+      [STATES.ROUNDHOUSE]: 0.42,
+      [STATES.GRAB]: 0.52,
+    };
+    const baseLaunch = launchByState[attacker.state.state] ?? 0;
+    const chargeLaunch = (attack.chargeLevel ?? 0) * 0.45;
+    const damageLaunch = THREE.MathUtils.clamp((damage - 10) / 12, 0, 0.55);
+    const killLaunch = defender.health <= 0 ? 0.35 : 0;
+    const launchPower = THREE.MathUtils.clamp((baseLaunch + chargeLaunch + damageLaunch + killLaunch) * falloff, 0, 1);
+
+    if (launchPower <= 0) {
+      return 0;
+    }
+
+    defender.velocity += (0.6 + launchPower * 1.45) * attacker.facing;
+    attacker.velocity -= 0.08 * launchPower * attacker.facing;
+    defender.position.x = clamp(defender.position.x + attacker.facing * launchPower * 0.1, -4.2, 4.2);
+    return launchPower;
+  }
+
+  stopStrikeAtContact(attacker, defender, hitInfo) {
+    if (!isStrikeHit(hitInfo)) {
+      return;
+    }
+
+    const contactDistance = getStrikeContactDistance(attacker.state.state, hitInfo);
+    const signedGap = (defender.position.x - attacker.position.x) * attacker.facing;
+
+    if (signedGap >= contactDistance) {
+      return;
+    }
+
+    defender.position.x = clamp(attacker.position.x + contactDistance * attacker.facing, -4.2, 4.2);
+    defender.velocity = Math.max(0, defender.velocity * attacker.facing) * attacker.facing;
   }
 
   resolveGrabs(attacker, defender) {
@@ -380,6 +470,7 @@ export class FightGame {
         damage: throwState.grab.damage,
         isBlocking: false,
         hitInfo: { zone: 'body', limb: 'grab' },
+        launchPower: 0.68,
       });
       this.debug.hits++;
       this.log(`${throwState.attacker.name} threw ${throwState.defender.name}`);
@@ -416,6 +507,7 @@ export class FightGame {
         winner = this.player.health > this.opponent.health ? this.player : this.opponent;
         winner.rounds++;
         this.message = winner.rounds >= this.targetWins ? `${winner.name} wins the match` : `${winner.name} wins`;
+        winner.setReaction(chooseVictoryAnimation(), Infinity);
       }
 
       this.roundState = winner?.rounds >= this.targetWins ? 'matchOver' : 'roundOver';
@@ -498,12 +590,16 @@ function resolveHitSpheres(attacker, defender, attack, rootDistance = Infinity) 
       const distance = colliderPointA.distanceTo(colliderPointB);
       const overlap = radius - distance;
       const xDistance = Math.abs(colliderPointA.x - colliderPointB.x);
+      const zDistance = Math.abs(colliderPointA.z - colliderPointB.z);
+      const laneDistance = Math.hypot(xDistance, zDistance * DEPTH_HIT_SCALE);
       const candidate = {
         limb: attackName,
         zone: hurtName === 'head' ? 'head' : 'body',
         overlap,
         distance,
         xDistance,
+        zDistance,
+        laneDistance,
       };
 
       if (!closestHit || distance < closestHit.distance) {
@@ -520,7 +616,7 @@ function resolveHitSpheres(attacker, defender, attack, rootDistance = Infinity) 
     return bestHit;
   }
 
-  if (closestHit && closestHit.xDistance <= attack.range) {
+  if (closestHit && closestHit.laneDistance <= attack.range) {
     return {
       ...closestHit,
       overlap: Math.max(closestHit.overlap, 0.04),
@@ -594,6 +690,10 @@ function chooseDeathAnimation(attackState, zone = chooseFallbackHitZone(attackSt
   return pick(deathByAttack[attackState] ?? ['death']);
 }
 
+function chooseVictoryAnimation() {
+  return pick(['victory-1', 'victory-2', 'victory-3', 'victory-4', 'victory-talk']);
+}
+
 function pick(items) {
   return items[Math.floor(Math.random() * items.length)];
 }
@@ -605,10 +705,17 @@ function combatantSnapshot(combatant) {
     rounds: combatant.rounds,
     state: combatant.state.state,
     x: Number(combatant.position.x.toFixed(3)),
+    z: Number(combatant.position.z.toFixed(3)),
     facing: combatant.facing,
     flash: combatant.flash,
     lastHitZone: combatant.lastHitZone,
   };
+}
+
+function attackDistance(attacker, defender) {
+  const xDistance = Math.abs(defender.position.x - attacker.position.x);
+  const zDistance = Math.abs(defender.position.z - attacker.position.z);
+  return Math.hypot(xDistance, zDistance * DEPTH_HIT_SCALE);
 }
 
 function getContactX(attacker, defender) {
@@ -623,6 +730,34 @@ function stopAtContact(attacker, defender) {
   } else {
     attacker.position.x = Math.max(attacker.position.x, contactX);
   }
+}
+
+function isStrikeHit(hitInfo) {
+  return ['leftHand', 'rightHand', 'leftFoot', 'rightFoot'].includes(hitInfo?.limb);
+}
+
+function getStrikeContactDistance(attackState, hitInfo) {
+  if (isFootHit(hitInfo)) {
+    return getFootContactDistance(attackState);
+  }
+
+  if (attackState === STATES.HEAVY) {
+    return 1.12;
+  }
+
+  return STRIKE_CONTACT_DISTANCE;
+}
+
+function isFootHit(hitInfo) {
+  return hitInfo?.limb === 'leftFoot' || hitInfo?.limb === 'rightFoot';
+}
+
+function getFootContactDistance(attackState) {
+  if (attackState === STATES.JUMP_KICK || attackState === STATES.HURRICANE_KICK || attackState === STATES.ROUNDHOUSE) {
+    return 1.24;
+  }
+
+  return FOOT_CONTACT_DISTANCE;
 }
 
 function clamp(value, min, max) {

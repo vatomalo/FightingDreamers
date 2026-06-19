@@ -2,6 +2,9 @@ export const STATES = {
   IDLE: 'idle',
   WALK_FORWARD: 'walkForward',
   WALK_BACK: 'walkBack',
+  SIDE_STEP_LEFT: 'sideStepLeft',
+  SIDE_STEP_RIGHT: 'sideStepRight',
+  CHARGE_ATTACK: 'chargeAttack',
   CROUCH: 'crouch',
   BLOCK: 'block',
   JUMP: 'jump',
@@ -22,6 +25,9 @@ const STATE_CONFIG = {
   [STATES.IDLE]: { duration: Infinity, canMove: true },
   [STATES.WALK_FORWARD]: { duration: Infinity, canMove: true },
   [STATES.WALK_BACK]: { duration: Infinity, canMove: true },
+  [STATES.SIDE_STEP_LEFT]: { duration: 0.48, canMove: false, sideMove: -1 },
+  [STATES.SIDE_STEP_RIGHT]: { duration: 0.48, canMove: false, sideMove: 1 },
+  [STATES.CHARGE_ATTACK]: { duration: Infinity, canMove: false },
   [STATES.CROUCH]: { duration: Infinity, canMove: false },
   [STATES.BLOCK]: { duration: Infinity, canMove: false },
   [STATES.JUMP]: { duration: 0.52, canMove: false, cancelAfter: Infinity, animation: 'jump' },
@@ -40,6 +46,17 @@ const STATE_CONFIG = {
 
 const ATTACKS = new Set([STATES.JAB, STATES.KICK, STATES.JUMP_KICK, STATES.HURRICANE_KICK, STATES.MARTELO_KICK, STATES.HEAVY, STATES.ROUNDHOUSE, STATES.GRAB]);
 const LOCKED = new Set([STATES.HITSTUN, STATES.KNOCKDOWN, STATES.GRABBED]);
+const CHARGE_MIN = 0.18;
+const CHARGE_MAX = 0.82;
+const ATTACK_BY_KEY = {
+  KeyJ: STATES.JAB,
+  KeyK: STATES.KICK,
+  KeyH: STATES.HURRICANE_KICK,
+  KeyM: STATES.MARTELO_KICK,
+  KeyU: STATES.HEAVY,
+  KeyI: STATES.ROUNDHOUSE,
+  KeyO: STATES.GRAB,
+};
 
 export class AnimationStateMachine {
   constructor() {
@@ -49,6 +66,9 @@ export class AnimationStateMachine {
     this.comboStep = 0;
     this.hitResolved = false;
     this.overrideDuration = null;
+    this.chargeKey = null;
+    this.chargeTarget = null;
+    this.chargeLevel = 0;
   }
 
   update(delta, input) {
@@ -63,7 +83,12 @@ export class AnimationStateMachine {
       return this.snapshot();
     }
 
-    if (this.state === STATES.JUMP) {
+    if (this.state === STATES.JUMP || this.state === STATES.SIDE_STEP_LEFT || this.state === STATES.SIDE_STEP_RIGHT) {
+      return this.snapshot();
+    }
+
+    if (this.state === STATES.CHARGE_ATTACK) {
+      this.updateCharge(input);
       return this.snapshot();
     }
 
@@ -72,22 +97,12 @@ export class AnimationStateMachine {
       return this.snapshot();
     }
 
-    if (input.wasPressed('KeyJ')) {
-      this.transition(STATES.JAB);
-    } else if (input.wasPressed('KeyH')) {
-      this.transition(STATES.HURRICANE_KICK);
-    } else if (input.wasPressed('KeyM')) {
-      this.transition(STATES.MARTELO_KICK);
-    } else if (this.readJump(input) && input.wasPressed('KeyK')) {
-      this.transition(STATES.JUMP_KICK);
-    } else if (input.wasPressed('KeyK')) {
-      this.transition(STATES.KICK);
-    } else if (input.wasPressed('KeyO')) {
-      this.transition(STATES.GRAB);
-    } else if (input.wasPressed('KeyU')) {
-      this.transition(STATES.HEAVY);
-    } else if (input.wasPressed('KeyI')) {
-      this.transition(STATES.ROUNDHOUSE);
+    if (input.wasPressed('KeyQ')) {
+      this.transition(STATES.SIDE_STEP_LEFT);
+    } else if (input.wasPressed('KeyE')) {
+      this.transition(STATES.SIDE_STEP_RIGHT);
+    } else if (this.readAttackPress(input)) {
+      return this.snapshot();
     } else if (this.readJump(input)) {
       this.transition(STATES.JUMP);
     } else {
@@ -107,9 +122,15 @@ export class AnimationStateMachine {
     this.elapsed = 0;
     this.hitResolved = false;
     this.overrideDuration = options.duration ?? null;
+    this.chargeLevel = options.chargeLevel ?? 0;
 
     if (!ATTACKS.has(nextState)) {
       this.comboStep = 0;
+    }
+
+    if (nextState !== STATES.CHARGE_ATTACK) {
+      this.chargeKey = null;
+      this.chargeTarget = null;
     }
   }
 
@@ -124,6 +145,14 @@ export class AnimationStateMachine {
 
     if (this.readJump(input)) {
       return STATES.JUMP;
+    }
+
+    if (input.wasPressed('KeyQ')) {
+      return STATES.SIDE_STEP_LEFT;
+    }
+
+    if (input.wasPressed('KeyE')) {
+      return STATES.SIDE_STEP_RIGHT;
     }
 
     if (input.isDown('ArrowRight') || input.isDown('KeyD')) {
@@ -169,6 +198,42 @@ export class AnimationStateMachine {
     }
   }
 
+  readAttackPress(input) {
+    for (const [key, state] of Object.entries(ATTACK_BY_KEY)) {
+      if (!input.wasPressed(key)) {
+        continue;
+      }
+
+      const targetState = key === 'KeyK' && this.readJump(input) ? STATES.JUMP_KICK : state;
+
+      if (!input.isDown(key)) {
+        this.transition(targetState);
+        return true;
+      }
+
+      this.chargeKey = key;
+      this.chargeTarget = targetState;
+      this.transition(STATES.CHARGE_ATTACK);
+      this.chargeKey = key;
+      this.chargeTarget = targetState;
+      return true;
+    }
+
+    return false;
+  }
+
+  updateCharge(input) {
+    const released = !this.chargeKey || !input.isDown(this.chargeKey) || input.wasReleased?.(this.chargeKey);
+
+    if (!released) {
+      return;
+    }
+
+    const target = this.chargeTarget ?? STATES.JAB;
+    const chargeLevel = Math.min(Math.max((this.elapsed - CHARGE_MIN) / (CHARGE_MAX - CHARGE_MIN), 0), 1);
+    this.transition(target, { chargeLevel });
+  }
+
   readJump(input) {
     return input.isDown('KeyW') || input.isDown('Space') || input.isDown('ArrowUp');
   }
@@ -190,11 +255,15 @@ export class AnimationStateMachine {
   }
 
   get duration() {
-    return this.overrideDuration ?? STATE_CONFIG[this.state].duration;
+    return this.overrideDuration ?? this.attack?.duration ?? STATE_CONFIG[this.state].duration;
   }
 
   get attack() {
-    return ATTACKS.has(this.state) ? STATE_CONFIG[this.state] : null;
+    if (!ATTACKS.has(this.state)) {
+      return null;
+    }
+
+    return chargedAttackConfig(STATE_CONFIG[this.state], this.chargeLevel);
   }
 
   get isAttackActive() {
@@ -212,12 +281,42 @@ export class AnimationStateMachine {
       elapsed: this.elapsed,
       progress,
       comboStep: this.comboStep,
+      chargeLevel: this.state === STATES.CHARGE_ATTACK ? Math.min(Math.max((this.elapsed - CHARGE_MIN) / (CHARGE_MAX - CHARGE_MIN), 0), 1) : this.chargeLevel,
       canMove: config.canMove,
       duration: this.duration,
       animation: config.animation ?? null,
+      sideMove: config.sideMove ?? 0,
       attack: this.attack,
       isAttackActive: this.isAttackActive,
       hitResolved: this.hitResolved,
     };
   }
+}
+
+function chargedAttackConfig(config, chargeLevel = 0) {
+  if (!chargeLevel) {
+    return config;
+  }
+
+  const windupScale = 1 + chargeLevel * 0.55;
+  const durationScale = 1 + chargeLevel * 0.42;
+  const activeWindow = config.activeTo - config.activeFrom;
+
+  return {
+    ...config,
+    duration: config.duration * durationScale,
+    cancelAfter: config.cancelAfter * durationScale,
+    activeFrom: config.activeFrom * windupScale,
+    activeTo: config.activeFrom * windupScale + activeWindow * (1 + chargeLevel * 0.18),
+    damage: config.damage * (1 + chargeLevel * 0.55),
+    chip: config.chip * (1 + chargeLevel * 0.35),
+    knockback: config.knockback * (1 + chargeLevel * 0.75),
+    hitstun: config.hitstun * (1 + chargeLevel * 0.35),
+    hitstop: config.hitstop * (1 + chargeLevel * 0.65),
+    attackerPush: config.attackerPush * (1 + chargeLevel * 0.35),
+    defenderPush: config.defenderPush * (1 + chargeLevel * 0.8),
+    reactionTime: config.reactionTime * (1 + chargeLevel * 0.3),
+    spherePadding: (config.spherePadding ?? 0.18) * (1 + chargeLevel * 0.2),
+    chargeLevel,
+  };
 }

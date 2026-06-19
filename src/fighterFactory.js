@@ -273,7 +273,7 @@ async function createActionAnimations(mixer, animations) {
 
       const action = mixer.clipAction(clip);
       action.enabled = true;
-      action.clampWhenFinished = name.startsWith('death');
+      action.clampWhenFinished = name.startsWith('death') || name.startsWith('victory');
       action.setLoop(THREE.LoopOnce, 1);
       actions[name] = { action, clip };
     } catch (error) {

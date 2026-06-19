@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const { PNG } = require('pngjs');
 
 const BASE_URL = process.env.FIGHTING_DREAMERS_URL || 'http://127.0.0.1:5173';
+const PLAYABILITY_URL = withQuery(BASE_URL, { p1style: 'martial', p2style: 'martial' });
 
 function screenshotStats(buffer) {
   const png = PNG.sync.read(buffer);
@@ -46,7 +47,7 @@ async function runViewport(browser, viewport) {
     }
   });
 
-  await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
+  await page.goto(PLAYABILITY_URL, { waitUntil: 'domcontentloaded', timeout: 90000 });
   await page.waitForFunction(() => Boolean(window.__FIGHTING_DREAMERS__), null, { timeout: 120000 });
   await page.locator('#game').click({ position: { x: 8, y: 8 } });
   await page.waitForTimeout(3000);
@@ -90,32 +91,21 @@ async function runViewport(browser, viewport) {
       pngBackgroundStatus: { ...window.__FIGHTING_DREAMERS__.pngBackgroundStatus },
       pngBackgroundOptionCount: window.__FIGHTING_DREAMERS__.pngBackgroundOptions.length,
       actionTrackCounts: Object.fromEntries(
-        [
-          'jab',
-          'heavy',
-          'kick',
-          'jump',
-          'jumpKick',
-          'hurricaneKick',
-          'marteloKick',
-          'roundhouse',
-          'grab',
-          'hithead',
-          'hitbody',
-          'hitbody-big',
-          'death',
-          'death-flyingback',
-        ].map((key) => [
+        Object.keys(game.player.model.actions).map((key) => [
           key,
           game.player.model.actions[key]?.clip.tracks.length ?? 0,
         ]),
       ),
+      playerCombatActionNames: game.player.model.combatActionNames,
+      opponentCombatActionNames: game.opponent.model.combatActionNames,
+      playerStyleName: window.__FIGHTING_DREAMERS__.playerAnimationStyleName,
+      opponentStyleName: window.__FIGHTING_DREAMERS__.opponentAnimationStyleName,
       modelOptionCount: window.__FIGHTING_DREAMERS__.modelOptions.length,
       animationStyleNames: window.__FIGHTING_DREAMERS__.animationStyleNames,
       animationStyleOptions: window.__FIGHTING_DREAMERS__.animationStyleOptions,
       activeAnimationStyleName: window.__FIGHTING_DREAMERS__.activeAnimationStyleName,
       styleLabel: document.querySelector('.style-label')?.textContent ?? '',
-      boxingClipNames: {
+      activeClipNames: {
         stance: game.player.model.stanceClip?.name,
         jab: game.player.model.actions.jab?.clip.name,
         heavy: game.player.model.actions.heavy?.clip.name,
@@ -175,20 +165,34 @@ async function runViewport(browser, viewport) {
   assert(animationInfo.animationStyleNames.includes('default'), 'runtime discovers the default animation style folder');
   assert(animationInfo.animationStyleNames.includes('boxing'), 'runtime discovers the boxing animation style folder');
   assert(animationInfo.animationStyleNames.includes('hooligan'), 'runtime discovers the hooligan animation style folder');
-  assert(animationInfo.animationStyleOptions.includes('default'), 'default style is complete');
-  assert(animationInfo.animationStyleOptions.includes('boxing'), 'boxing style is complete');
-  assert(animationInfo.animationStyleOptions.includes('hooligan'), 'hooligan style is complete');
-  assert(animationInfo.animationStyleOptions.includes(animationInfo.activeAnimationStyleName), 'active animation style is complete');
-  assert(animationInfo.activeAnimationStyleName === 'boxing', 'boxing style is preferred when available');
-  assert(animationInfo.styleLabel.toLowerCase().includes('boxing'), `HUD shows the active boxing style, label was ${animationInfo.styleLabel}`);
-  assert(animationInfo.boxingClipNames.stance === 'stance', 'boxing style supplies the stance clip');
-  assert(animationInfo.boxingClipNames.jab === 'jab', 'boxing style supplies the jab clip');
-  assert(animationInfo.boxingClipNames.heavy === 'heavy', 'boxing style supplies the heavy clip');
-  assert(animationInfo.boxingClipNames.block === 'blockbody', 'boxing style supplies the block clip');
+  assert(animationInfo.animationStyleNames.includes('martial'), 'runtime discovers the martial animation style folder');
+  assert(animationInfo.animationStyleNames.includes('capoeira'), 'runtime discovers the capoeira animation style folder');
+  assert(!animationInfo.animationStyleOptions.includes('default'), 'default is shared support, not a playable attack style');
+  assert(animationInfo.animationStyleOptions.includes('boxing'), 'boxing style is playable');
+  assert(animationInfo.animationStyleOptions.includes('hooligan'), 'hooligan style is playable');
+  assert(animationInfo.animationStyleOptions.includes('martial'), 'martial style is playable');
+  assert(animationInfo.animationStyleOptions.includes('capoeira'), 'capoeira style is playable');
+  assert(animationInfo.playerStyleName === 'martial', `forced player style is martial, got ${animationInfo.playerStyleName}`);
+  assert(animationInfo.opponentStyleName === 'martial', `forced opponent style is martial, got ${animationInfo.opponentStyleName}`);
+  assert(animationInfo.animationStyleOptions.includes(animationInfo.playerStyleName), 'player animation style is playable');
+  assert(animationInfo.animationStyleOptions.includes(animationInfo.opponentStyleName), 'opponent animation style is playable');
+  assert(animationInfo.playerCombatActionNames.includes('grab'), 'martial player keeps the old grab attack');
+  assert(animationInfo.playerCombatActionNames.includes('hurricaneKick'), 'martial player keeps the old hurricane kick attack');
+  assert(
+    animationInfo.styleLabel.toLowerCase().includes('martial / martial'),
+    `HUD shows the active animation style, label was ${animationInfo.styleLabel}`,
+  );
+  assert(animationInfo.activeClipNames.stance === 'stance', 'active style supplies the stance clip');
+  assert(animationInfo.activeClipNames.jab === 'jab', 'active style supplies the jab clip');
+  assert(animationInfo.activeClipNames.heavy === 'heavy', 'active style supplies the heavy clip');
+  assert(animationInfo.activeClipNames.block === 'blockbody', 'active style supplies the block clip');
   assert(animationInfo.differentModels, 'player and opponent choose different model files');
   assert(playerAiEnabledByDefault, 'player 1 starts with AI enabled');
   for (const [key, trackCount] of Object.entries(animationInfo.actionTrackCounts)) {
     assert(trackCount > 10, `${key} animation has bone tracks`);
+  }
+  for (const key of ['hithead', 'hitbody', 'hitbody-big', 'death', 'death-flyingback', 'victory-1', 'victory-2', 'victory-3', 'victory-4', 'victory-talk']) {
+    assert(animationInfo.actionTrackCounts[key] > 10, `${key} shared animation is inherited by martial`);
   }
 
   const renderStats = screenshotStats(await page.screenshot());
@@ -219,7 +223,9 @@ async function runViewport(browser, viewport) {
   await page.evaluate(() => {
     const { game } = window.__FIGHTING_DREAMERS__;
     game.player.position.x = -0.45;
+    game.player.position.z = 0;
     game.opponent.position.x = 0.45;
+    game.opponent.position.z = 0;
     game.opponent.ai.attackCooldown = 99;
   });
   await page.evaluate(() => {
@@ -241,6 +247,38 @@ async function runViewport(browser, viewport) {
   const afterReset = await snapshot(page);
   assert(afterReset.player.health === 100 && afterReset.opponent.health === 100, 'reset restores health');
   assert(afterReset.debug.hits === 0 && afterReset.debug.blocked === 0, 'reset clears combat diagnostics');
+
+  const sideStepCheck = await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.player.position.x = -0.45;
+    game.player.position.z = 0;
+    game.opponent.position.x = 0.45;
+    game.opponent.position.z = 0;
+    game.opponent.ai.attackCooldown = 99;
+    game.input.pressed.add('KeyE');
+    game.update(1 / 60);
+    game.input.pressed.clear();
+    for (let i = 0; i < 24; i++) {
+      game.update(1 / 60);
+    }
+    const zAfterStep = game.player.position.z;
+    game.player.machine.transition('idle');
+    game.player.state = game.player.machine.snapshot();
+    game.input.pressed.add('KeyJ');
+    game.update(1 / 60);
+    game.input.pressed.clear();
+    for (let i = 0; i < 24; i++) {
+      game.update(1 / 60);
+    }
+    return {
+      stateAfterStep: game.player.state.previousState,
+      zAfterStep,
+      opponentHealth: game.opponent.health,
+      hits: game.debug.hits,
+    };
+  });
+  assert(sideStepCheck.zAfterStep > 0.25, `E sidestep moves the fighter on the depth axis, got ${JSON.stringify(sideStepCheck)}`);
+  assert(sideStepCheck.opponentHealth === 100, `off-axis jab should whiff after sidestep, got ${JSON.stringify(sideStepCheck)}`);
 
   const hitReaction = await page.evaluate(() => {
     const { game } = window.__FIGHTING_DREAMERS__;
@@ -272,6 +310,75 @@ async function runViewport(browser, viewport) {
 
   await page.keyboard.press('KeyR');
   await page.waitForTimeout(80);
+  const chargedAttack = await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.player.position.x = -0.52;
+    game.player.position.z = 0;
+    game.opponent.position.x = 0.52;
+    game.opponent.position.z = 0;
+    game.opponent.health = 100;
+    game.opponent.ai.attackCooldown = 99;
+    game.input.down.add('KeyU');
+    game.input.pressed.add('KeyU');
+    game.update(1 / 60);
+    game.input.pressed.clear();
+    for (let i = 0; i < 38; i++) {
+      game.update(1 / 60);
+    }
+    const chargeBeforeRelease = game.player.state.chargeLevel;
+    game.input.down.delete('KeyU');
+    game.input.released.add('KeyU');
+    game.update(1 / 60);
+    game.input.released.clear();
+    const released = {
+      state: game.player.state.state,
+      chargeLevel: game.player.state.chargeLevel,
+      duration: game.player.state.duration,
+      activeFrom: game.player.state.attack?.activeFrom ?? 0,
+      damage: game.player.state.attack?.damage ?? 0,
+    };
+    for (let i = 0; i < 68; i++) {
+      game.update(1 / 60);
+    }
+    return {
+      chargeBeforeRelease,
+      released,
+      opponentHealth: game.opponent.health,
+      hits: game.debug.hits,
+    };
+  });
+  assert(chargedAttack.chargeBeforeRelease > 0.55, `holding attack builds charge, got ${JSON.stringify(chargedAttack)}`);
+  assert(chargedAttack.released.state === 'heavy', `releasing U starts heavy, got ${JSON.stringify(chargedAttack)}`);
+  assert(chargedAttack.released.chargeLevel > 0.55, `released attack keeps charge level, got ${JSON.stringify(chargedAttack)}`);
+  assert(chargedAttack.released.duration > 0.68, `charged heavy has slower execution, got ${JSON.stringify(chargedAttack)}`);
+  assert(chargedAttack.released.damage > 16, `charged heavy has boosted damage, got ${JSON.stringify(chargedAttack)}`);
+  assert(chargedAttack.opponentHealth < 84 || chargedAttack.hits > 0, `charged heavy deals extra damage when it connects, got ${JSON.stringify(chargedAttack)}`);
+
+  await page.keyboard.press('KeyR');
+  await page.waitForTimeout(80);
+  const aiChargedAttack = await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.player.position.x = -0.52;
+    game.player.position.z = 0;
+    game.opponent.position.x = 0.52;
+    game.opponent.position.z = 0;
+    game.opponent.ai.attackCooldown = 99;
+    game.opponent.ai.startMacro('chargeAttack', 0.46, null, null, { key: 'KeyU' });
+    let maxCharge = 0;
+    for (let i = 0; i < 88; i++) {
+      game.update(1 / 60);
+      maxCharge = Math.max(maxCharge, game.opponent.state.chargeLevel ?? 0);
+    }
+    return {
+      maxCharge,
+      playerHealth: game.player.health,
+      opponentState: game.opponent.state.state,
+      opponentCharge: game.opponent.state.chargeLevel,
+      hits: game.debug.hits,
+    };
+  });
+  assert(aiChargedAttack.maxCharge > 0.35, `AI can hold an attack charge, got ${JSON.stringify(aiChargedAttack)}`);
+  assert(aiChargedAttack.playerHealth < 100 || aiChargedAttack.hits > 0, `AI charged attack resolves through combat, got ${JSON.stringify(aiChargedAttack)}`);
 
   await hold(page, 'KeyD', 1050);
   await page.keyboard.press('KeyJ');
@@ -321,6 +428,32 @@ async function runViewport(browser, viewport) {
   assert(kickStart.actionRunning, 'kick animation action starts');
   assert(kickStart.rootYDelta < 0.001, `grounded kick should not move hips upward, delta was ${kickStart.rootYDelta}`);
   assert(afterCombo.opponent.health < 100 || afterCombo.debug.blocked > 0, 'player attacks interact with opponent');
+  assert(
+    Math.abs(afterCombo.opponent.x - afterCombo.player.x) >= 1.12,
+    `kick contact should stop overlap before pushback, gap was ${Math.abs(afterCombo.opponent.x - afterCombo.player.x)}`,
+  );
+
+  await page.keyboard.press('KeyR');
+  await page.waitForTimeout(80);
+  const handContact = await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    game.player.position.x = -0.42;
+    game.opponent.position.x = 0.42;
+    game.opponent.ai.attackCooldown = 99;
+    game.input.pressed.add('KeyJ');
+    game.update(1 / 60);
+    game.input.pressed.clear();
+    for (let i = 0; i < 20; i++) {
+      game.update(1 / 60);
+    }
+    return {
+      gap: Math.abs(game.opponent.position.x - game.player.position.x),
+      opponentHealth: game.opponent.health,
+      events: [...game.eventLog],
+    };
+  });
+  assert(handContact.opponentHealth < 100, `jab should connect for hand contact test, result was ${JSON.stringify(handContact)}`);
+  assert(handContact.gap >= 1.04, `hand contact should stop overlap before pushback, gap was ${handContact.gap}`);
 
   await page.keyboard.press('KeyR');
   await page.waitForTimeout(80);
@@ -551,15 +684,53 @@ async function runViewport(browser, viewport) {
     game.player.rounds = game.targetWins - 1;
     game.opponent.health = 0;
     game.checkRoundEnd();
+    window.__FIGHTING_DREAMERS__.syncAnimations();
+    const playerReaction = game.player.reactionAnimation;
+    const actionStarted = Boolean(game.player.model.actions[playerReaction]?.action.isRunning());
     for (let i = 0; i < 180; i++) {
       game.update(1 / 60);
+      window.__FIGHTING_DREAMERS__.syncAnimations();
     }
-    return game.snapshot();
+    return {
+      snapshot: game.snapshot(),
+      playerReaction,
+      actionStarted,
+    };
   });
-  assert(afterMatchPoint.targetWins === 3, 'match target is first to 3 wins');
-  assert(afterMatchPoint.roundState === 'matchOver', 'third win stops the match');
-  assert(afterMatchPoint.player.rounds === 3, 'winner is held at 3 wins');
-  assert(afterMatchPoint.message.includes('wins the match'), 'match-over message is shown');
+  assert(afterMatchPoint.snapshot.targetWins === 3, 'match target is first to 3 wins');
+  assert(afterMatchPoint.snapshot.roundState === 'matchOver', 'third win stops the match');
+  assert(afterMatchPoint.snapshot.player.rounds === 3, 'winner is held at 3 wins');
+  assert(afterMatchPoint.snapshot.message.includes('wins the match'), 'match-over message is shown');
+  assert(afterMatchPoint.playerReaction?.startsWith('victory'), `winner chooses a victory animation, got ${afterMatchPoint.playerReaction}`);
+  assert(afterMatchPoint.actionStarted, 'winner victory animation action starts');
+
+  await page.goto(withQuery(BASE_URL, { p1style: 'boxing', p2style: 'hooligan' }), { waitUntil: 'domcontentloaded', timeout: 90000 });
+  await page.waitForFunction(() => Boolean(window.__FIGHTING_DREAMERS__), null, { timeout: 120000 });
+  await page.waitForTimeout(2000);
+  const styleSplit = await page.evaluate(() => {
+    const { game } = window.__FIGHTING_DREAMERS__;
+    return {
+      playerStyle: window.__FIGHTING_DREAMERS__.playerAnimationStyleName,
+      opponentStyle: window.__FIGHTING_DREAMERS__.opponentAnimationStyleName,
+      playerCombatActions: game.player.model.combatActionNames,
+      opponentCombatActions: game.opponent.model.combatActionNames,
+      playerHasMartialGrab: Boolean(game.player.model.actions.grab),
+      opponentHasMartialGrab: Boolean(game.opponent.model.actions.grab),
+      playerHasMartialKick: Boolean(game.player.model.actions.hurricaneKick || game.player.model.actions.marteloKick || game.player.model.actions.roundhouse),
+      opponentHasMartialKick: Boolean(game.opponent.model.actions.hurricaneKick || game.opponent.model.actions.marteloKick || game.opponent.model.actions.roundhouse),
+      playerSharedReaction: Boolean(game.player.model.actions.hithead && game.player.model.actions.death && game.player.model.actions['victory-1']),
+      opponentSharedReaction: Boolean(game.opponent.model.actions.hithead && game.opponent.model.actions.death && game.opponent.model.actions['victory-1']),
+      label: document.querySelector('.style-label')?.textContent ?? '',
+    };
+  });
+  assert(styleSplit.playerStyle === 'boxing', `forced player style is boxing, got ${JSON.stringify(styleSplit)}`);
+  assert(styleSplit.opponentStyle === 'hooligan', `forced opponent style is hooligan, got ${JSON.stringify(styleSplit)}`);
+  assert(styleSplit.playerCombatActions.includes('jab') && styleSplit.playerCombatActions.includes('heavy'), 'boxing still has its own punch attacks');
+  assert(styleSplit.opponentCombatActions.includes('jab') && styleSplit.opponentCombatActions.includes('heavy'), 'hooligan still has its own punch attacks');
+  assert(!styleSplit.playerHasMartialGrab && !styleSplit.opponentHasMartialGrab, 'non-martial styles do not inherit default/martial grab');
+  assert(!styleSplit.playerHasMartialKick && !styleSplit.opponentHasMartialKick, 'non-martial styles do not inherit default/martial kicks');
+  assert(styleSplit.playerSharedReaction && styleSplit.opponentSharedReaction, 'styles still inherit shared reactions and victories');
+  assert(styleSplit.label.toLowerCase().includes('boxing / hooligan'), `HUD shows mixed styles, label was ${styleSplit.label}`);
 
   assert(consoleErrors.length === 0, `browser errors: ${consoleErrors.join(' | ')}`);
 
@@ -574,7 +745,7 @@ async function runViewport(browser, viewport) {
     afterJumpKick,
     afterGrab,
     afterAi,
-    afterMatchPoint,
+    afterMatchPoint: afterMatchPoint.snapshot,
   };
 }
 
@@ -600,4 +771,12 @@ function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
+}
+
+function withQuery(url, params) {
+  const parsed = new URL(url);
+  for (const [key, value] of Object.entries(params)) {
+    parsed.searchParams.set(key, value);
+  }
+  return parsed.toString();
 }

@@ -13,10 +13,10 @@ const PHASES = {
 const phaseDurations = {
   [PHASES.ANTICIPATION]: 0.16,
   [PHASES.WINDUP]: 0.32,
-  [PHASES.IMPACT]: 0.28,
-  [PHASES.FACE]: 0.34,
-  [PHASES.AFTERMATH]: 0.28,
-  [PHASES.RECOVERY]: 0.42,
+  [PHASES.IMPACT]: 0.24,
+  [PHASES.FACE]: 0.42,
+  [PHASES.AFTERMATH]: 0.36,
+  [PHASES.RECOVERY]: 0.5,
 };
 
 const tempPosition = new THREE.Vector3();
@@ -82,15 +82,17 @@ export class CinematicCameraDirector {
     }
 
     const severity = payload.severity ?? 0;
+    const chargeLevel = payload.chargeLevel ?? 0;
     const isHeadHit = payload.reactionType === 'head';
     const isAirHit = payload.attackState === 'jumpKick' || payload.attackState === 'hurricaneKick';
     const isHeavy = payload.rawDamage >= 13 || severity >= 0.5 || payload.attackState === 'heavy';
+    const isLauncher = payload.launchPower > 0.2;
 
     if (!isHeavy && !isHeadHit && !isAirHit) {
       return 1;
     }
 
-    const procChance = 0.58 + severity * 0.3 + (isHeadHit ? 0.16 : 0) + (isAirHit ? 0.12 : 0);
+    const procChance = 0.58 + severity * 0.3 + chargeLevel * 0.22 + (isHeadHit ? 0.16 : 0) + (isAirHit ? 0.12 : 0) + (isLauncher ? 0.14 : 0);
     return this.random() < procChance ? 2 : 1;
   }
 
@@ -167,16 +169,19 @@ export class CinematicCameraDirector {
       pose.lookAt.set(THREE.MathUtils.lerp(anchors.mid.x, anchors.impact.x, 0.66) + shake * 0.45, anchors.focusY + verticalShake * 0.5, side * -0.18);
       pose.fov = THREE.MathUtils.lerp(32, 22, punch);
     } else if (phase === PHASES.FACE) {
-      const faceSide = side * 0.34;
-      const dolly = frameDepthForBoth(anchors, THREE.MathUtils.lerp(2.56, 2.28, easeOutCubic(Math.sin(t * Math.PI * 0.5))));
-      const faceFocusX = THREE.MathUtils.lerp(anchors.mid.x, anchors.victimFace.x, 0.64);
-      pose.position.set(faceFocusX + anchors.direction.x * 0.18 + faceSide, anchors.victimFace.y + 0.02, dolly);
-      pose.lookAt.set(faceFocusX, anchors.victimFace.y - 0.02, side * -0.08);
-      pose.fov = THREE.MathUtils.lerp(28, 24, easeOutCubic(t));
+      const sideSwap = t < 0.52 ? side : -side;
+      const punchSlide = t < 0.52 ? easeOutCubic(t / 0.52) : easeOutCubic((t - 0.52) / 0.48);
+      const faceSide = sideSwap * THREE.MathUtils.lerp(0.58, 0.24, punchSlide);
+      const dolly = frameDepthForBoth(anchors, THREE.MathUtils.lerp(2.62, 2.12, easeOutCubic(Math.sin(t * Math.PI * 0.5))));
+      const faceFocusX = THREE.MathUtils.lerp(anchors.mid.x, anchors.victimFace.x, 0.74);
+      pose.position.set(faceFocusX + anchors.direction.x * 0.16 + faceSide, anchors.victimFace.y + 0.03, dolly);
+      pose.lookAt.set(faceFocusX - anchors.direction.x * 0.04, anchors.victimFace.y - 0.03, sideSwap * -0.1);
+      pose.fov = THREE.MathUtils.lerp(29, 20, easeOutCubic(t));
     } else if (phase === PHASES.AFTERMATH) {
-      pose.position.set(anchors.mid.x + anchors.direction.x * 0.3 + side * -0.36, 1.18, frameDepthForBoth(anchors, 2.8));
-      pose.lookAt.set(THREE.MathUtils.lerp(anchors.mid.x, anchors.victim.x, 0.55), 1.08, side * 0.1);
-      pose.fov = THREE.MathUtils.lerp(26, 38, settle);
+      const flyBack = easeOutCubic(t) * anchors.launchPower * 0.62;
+      pose.position.set(anchors.mid.x + anchors.direction.x * (0.28 + flyBack) + side * -0.48, 1.24 + anchors.launchPower * 0.08, frameDepthForBoth(anchors, 2.65));
+      pose.lookAt.set(THREE.MathUtils.lerp(anchors.mid.x, anchors.victim.x + anchors.direction.x * flyBack, 0.62), 1.08 + anchors.launchPower * 0.1, side * 0.12);
+      pose.fov = THREE.MathUtils.lerp(24, 42, settle);
     } else {
       const settlePose = new THREE.Vector3(anchors.mid.x * 0.28, 2.1, 6.2);
       pose.position.lerpVectors(settlePose, gameplayPose.position, settle);
@@ -238,6 +243,7 @@ function makeAnchors(payload) {
 
   const focusY = payload.reactionType === 'head' ? 1.46 : 1.12;
   const span = Math.max(Math.abs(victim.x - attacker.x), 0.72);
+  const launchPower = payload.launchPower ?? THREE.MathUtils.clamp((payload.rawDamage - 10) / 12, 0, 1);
 
   return {
     attacker: attacker.clone(),
@@ -248,6 +254,7 @@ function makeAnchors(payload) {
     focusY,
     span,
     direction,
+    launchPower,
   };
 }
 

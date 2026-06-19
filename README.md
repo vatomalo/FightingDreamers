@@ -4,7 +4,9 @@ Quick Three.js prototype for a KOF/Tekken-inspired 2.5D fighting game loop with 
 
 Matches are first to 3 round wins. Press `R` to start a fresh match.
 
-The fighters auto-discover every top-level FBX character model in `Models/`, randomly choose a ready stance from the active animation style, and use root-motion-authored action clips for attacks. Current clips live in `Models/Anim/default/`, `Models/Anim/boxing/`, and `Models/Anim/hooligan/`; boxing is preferred when available, and `?style=default` or `?style=hooligan` can force a set while testing. Extra motion-library clips are parked in each style's `extras/` folder until they get dedicated states. Only the sumo stance holds on its final frame; the other stances loop.
+The fighters auto-discover every top-level FBX character model in `Models/`, randomly choose their own playable animation style, randomly choose a ready stance from that style, and use root-motion-authored action clips for attacks. `Models/Anim/default/` is now shared support only: hit reactions, death clips, victory clips, and base stances. The old default attack kit lives in `Models/Anim/martial/`, while `Models/Anim/boxing/`, `Models/Anim/hooligan/`, and `Models/Anim/capoeira/` only use attacks present directly in their own style folders. No style inherits attacks from `default`; they only inherit shared reactions and victories. Use `?style=martial`, `?p1style=boxing&p2style=hooligan`, `?style=capoeira`, or any other discovered style name to force a set while testing. Extra motion-library clips can live in style subfolders until they get dedicated states. Only the sumo stance holds on its final frame; the other stances loop.
+
+Animation playback is style-tuned: hooligan is slower and heavier, martial is faster, and boxing is the fastest.
 
 Background PNGs in `Backgrounds/` are auto-discovered and randomly selected with the same cylindrical placement formula. If a PLY has the same basename as the PNG, it is paired for later point-cloud use. A matching `sky-{name}.png` replaces the upper cylinder while `{name}.png` stays on the lower stage/ground section.
 
@@ -29,6 +31,7 @@ Open `http://127.0.0.1:5173`.
 - `I`: roundhouse
 - `U`: heavy attack
 - `O`: grab / throw break
+- Hold and release attack buttons: slower charged attack with more damage and launch
 - `R`: reset round
 
 ## Test

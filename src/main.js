@@ -3,6 +3,7 @@ import { AiController } from './aiController.js';
 import { Combatant, FightGame } from './combat.js';
 import { createGaussianPlyPointBackground, createPngBackdrop, updatePngBackdrop } from './backgroundFactory.js';
 import { CinematicCameraDirector } from './cinematicCamera.js';
+import { AttackEffectsDirector } from './attackEffects.js';
 import { createArena, createFighterModel } from './fighterFactory.js';
 import { InputBuffer } from './input.js';
 import { STATES } from './animationStateMachine.js';
@@ -30,24 +31,44 @@ const requiredAnimationActions = [
   'jab',
   'heavy',
   'kick',
-  'jump',
   'jumpKick',
   'hurricaneKick',
   'marteloKick',
   'roundhouse',
   'grab',
+];
+const sharedAnimationActions = [
   'hithead',
+  'hithead-big',
+  'hithead-big-1',
+  'hithead-big-2',
+  'hithead-2',
+  'hitbody-1',
+  'hitbody-2',
   'hitbody',
   'hitbody-big',
   'death',
+  'death-fallback',
+  'death-fallback-1',
   'death-flyingback',
+  'death-standing-left',
+  'death-shield',
+  'death-twohand',
+  'victory-1',
+  'victory-2',
+  'victory-3',
+  'victory-4',
+  'victory-talk',
 ];
 const pngBackgroundOptions = createBackgroundOptions();
 const modelOptions = createModelOptions();
 const animationStyles = createAnimationStyles();
 const animationStyleOptions = createAnimationStyleOptions();
-const activeAnimationStyle = selectAnimationStyle();
-const stanceOptions = activeAnimationStyle.stances;
+const animationSpeedByStyle = {
+  hooligan: 0.78,
+  martial: 1.14,
+  boxing: 1.28,
+};
 
 const canvas = document.querySelector('#game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -84,7 +105,10 @@ let player;
 let opponent;
 let game;
 let cameraDirector;
+let effectsDirector;
 let pngBackgroundObject = null;
+let isResettingFighters = false;
+let currentStylePair = null;
 const gameplayCameraPose = {
   position: new THREE.Vector3(),
   lookAt: new THREE.Vector3(),
@@ -105,7 +129,7 @@ const pngBackgroundStatus = {
   error: null,
 };
 
-init();
+init().catch(handleFatalLoadError);
 
 async function init() {
   hud.message.textContent = 'Loading fighters';
@@ -116,47 +140,22 @@ async function init() {
     pngBackgroundStatus.state = 'disabled';
     backgroundStatus.state = 'disabled';
   }
-  const playerStance = randomStance();
-  const opponentStance = randomStance();
-  const [playerModelOption, opponentModelOption] = randomModelPair();
-  const [playerModelUrl, opponentModelUrl, playerStanceUrl, opponentStanceUrl, animations] = await Promise.all([
-    resolveAssetUrl(playerModelOption),
-    resolveAssetUrl(opponentModelOption),
-    resolveAssetUrl(playerStance),
-    resolveAssetUrl(opponentStance),
-    createAnimationMap(),
-  ]);
-  const [playerModel, opponentModel] = await Promise.all([
-    createFighterModel({
-      url: playerModelUrl,
-      stanceUrl: playerStanceUrl,
-      stanceName: playerStance.name,
-      stanceClampFinal: playerStance.clampFinal,
-      animations,
-      tint: 0x51d88a,
-      fallback: { body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f },
-    }),
-    createFighterModel({
-      url: opponentModelUrl,
-      stanceUrl: opponentStanceUrl,
-      stanceName: opponentStance.name,
-      stanceClampFinal: opponentStance.clampFinal,
-      animations,
-      tint: 0xdf4f59,
-      fallback: { body: 0xdf4f59, accent: 0x241923, skin: 0xd8a07f },
-    }),
-  ]);
-
+  const fighterPair = await loadFighterPair();
+  const { playerModel, opponentModel, playerAnimationStyle, opponentAnimationStyle } = fighterPair;
   scene.add(playerModel.root, opponentModel.root);
 
-  player = new Combatant({ name: 'Dreamer', model: playerModel, x: -1.35, ai: new AiController({ seed: 7331 }) });
-  opponent = new Combatant({ name: 'Rival', model: opponentModel, x: 1.35, ai: new AiController({ seed: 1337 }) });
+  player = new Combatant({ name: 'Dreamer', model: playerModel, x: -1.35, ai: new AiController({ seed: 7331, availableActions: playerModel.combatActionNames }) });
+  opponent = new Combatant({ name: 'Rival', model: opponentModel, x: 1.35, ai: new AiController({ seed: 1337, availableActions: opponentModel.combatActionNames }) });
   cameraDirector = new CinematicCameraDirector({ camera });
+  effectsDirector = new AttackEffectsDirector({ scene });
   game = new FightGame({
     player,
     opponent,
     input,
-    onHitConfirmed: (payload) => cameraDirector.onHit(payload),
+    onHitConfirmed: (payload) => {
+      cameraDirector.onHit(payload);
+      effectsDirector.onHit(payload);
+    },
   });
 
   window.__FIGHTING_DREAMERS__ = {
@@ -164,7 +163,9 @@ async function init() {
     modelOptions,
     animationStyleNames: Object.keys(animationStyles),
     animationStyleOptions: animationStyleOptions.map((style) => style.name),
-    activeAnimationStyleName: activeAnimationStyle.name,
+    activeAnimationStyleName: `${playerAnimationStyle.name}/${opponentAnimationStyle.name}`,
+    playerAnimationStyleName: playerAnimationStyle.name,
+    opponentAnimationStyleName: opponentAnimationStyle.name,
     backgroundStatus,
     pngBackgroundStatus,
     pngBackgroundOptions,
@@ -182,7 +183,7 @@ async function init() {
       applyPose(combatant, time);
     },
     setPlayerAiEnabled: (enabled) => {
-      player.ai = enabled ? new AiController({ seed: 7331 }) : null;
+      player.ai = enabled ? new AiController({ seed: 7331, availableActions: player.model.combatActionNames }) : null;
     },
     triggerCameraTest: () => {
       cameraDirector.cooldown = 0;
@@ -205,6 +206,7 @@ async function init() {
       }
     },
   };
+  syncDebugGlobals();
 
   clock.start();
   tick();
@@ -213,6 +215,20 @@ async function init() {
 function tick() {
   const delta = Math.min(clock.getDelta(), 0.05);
   const time = clock.elapsedTime;
+
+  if (input.wasPressed('KeyR') && !isResettingFighters) {
+    resetFightersWithNewStyles().catch(handleFatalLoadError);
+    input.endFrame();
+    requestAnimationFrame(tick);
+    return;
+  }
+
+  if (isResettingFighters) {
+    renderer.render(scene, camera);
+    input.endFrame();
+    requestAnimationFrame(tick);
+    return;
+  }
 
   game.update(delta);
   updateAnimationAction(player);
@@ -224,6 +240,7 @@ function tick() {
   constrainRootMotion(opponent);
   applyPose(player, time);
   applyPose(opponent, time + 0.7);
+  effectsDirector?.update(delta);
   updateCamera(delta);
   updatePngBackdrop(pngBackgroundObject, { cameraX: gameplayCameraPose.position.x, delta });
   updateHud(game.snapshot());
@@ -231,6 +248,114 @@ function tick() {
   renderer.render(scene, camera);
   input.endFrame();
   requestAnimationFrame(tick);
+}
+
+function handleFatalLoadError(error) {
+  console.error('Fighting Dreamers failed to load.', error);
+  hud.message.textContent = 'Load failed';
+  hud.events.innerHTML = `<span>${error?.message ?? String(error)}</span>`;
+  isResettingFighters = false;
+}
+
+async function loadFighterPair({ avoidCurrentStyles = false } = {}) {
+  const [playerAnimationStyle, opponentAnimationStyle] = selectAnimationStylePair(
+    avoidCurrentStyles ? currentStylePair : null,
+  );
+  const playerStance = randomStance(playerAnimationStyle);
+  const opponentStance = randomStance(opponentAnimationStyle);
+  const [playerModelOption, opponentModelOption] = randomModelPair();
+  const [playerModelUrl, opponentModelUrl, playerStanceUrl, opponentStanceUrl, playerAnimations, opponentAnimations] = await Promise.all([
+    resolveAssetUrl(playerModelOption),
+    resolveAssetUrl(opponentModelOption),
+    resolveAssetUrl(playerStance),
+    resolveAssetUrl(opponentStance),
+    createAnimationMap(playerAnimationStyle),
+    createAnimationMap(opponentAnimationStyle),
+  ]);
+  const [playerModel, opponentModel] = await Promise.all([
+    createFighterModel({
+      url: playerModelUrl,
+      stanceUrl: playerStanceUrl,
+      stanceName: playerStance.name,
+      stanceClampFinal: playerStance.clampFinal,
+      animations: playerAnimations,
+      tint: 0x51d88a,
+      fallback: { body: 0x51d88a, accent: 0x16212d, skin: 0xf0be9f },
+    }),
+    createFighterModel({
+      url: opponentModelUrl,
+      stanceUrl: opponentStanceUrl,
+      stanceName: opponentStance.name,
+      stanceClampFinal: opponentStance.clampFinal,
+      animations: opponentAnimations,
+      tint: 0xdf4f59,
+      fallback: { body: 0xdf4f59, accent: 0x241923, skin: 0xd8a07f },
+    }),
+  ]);
+
+  configureFighterModel(playerModel, playerAnimationStyle);
+  configureFighterModel(opponentModel, opponentAnimationStyle);
+  currentStylePair = [playerAnimationStyle.name, opponentAnimationStyle.name];
+  hud.styleLabel.textContent = `STYLE: ${playerAnimationStyle.name} / ${opponentAnimationStyle.name}`;
+
+  return {
+    playerModel,
+    opponentModel,
+    playerAnimationStyle,
+    opponentAnimationStyle,
+  };
+}
+
+function configureFighterModel(model, style) {
+  model.animationStyleName = style.name;
+  model.animationSpeed = animationSpeedForStyle(style);
+  model.combatActionNames = combatActionNamesForStyle(style);
+
+  if (model.stanceAction) {
+    model.stanceAction.timeScale = model.animationSpeed;
+  }
+}
+
+async function resetFightersWithNewStyles() {
+  isResettingFighters = true;
+  hud.message.textContent = 'Loading new styles';
+
+  const oldPlayerRoot = player?.model?.root;
+  const oldOpponentRoot = opponent?.model?.root;
+
+  const { playerModel, opponentModel } = await loadFighterPair({ avoidCurrentStyles: true });
+  scene.remove(oldPlayerRoot, oldOpponentRoot);
+  scene.add(playerModel.root, opponentModel.root);
+
+  player = new Combatant({
+    name: 'Dreamer',
+    model: playerModel,
+    x: -1.35,
+    ai: new AiController({ seed: 7331 + Math.floor(Math.random() * 100000), availableActions: playerModel.combatActionNames }),
+  });
+  opponent = new Combatant({
+    name: 'Rival',
+    model: opponentModel,
+    x: 1.35,
+    ai: new AiController({ seed: 1337 + Math.floor(Math.random() * 100000), availableActions: opponentModel.combatActionNames }),
+  });
+
+  game.player = player;
+  game.opponent = opponent;
+  game.resetMatch();
+  syncDebugGlobals();
+  isResettingFighters = false;
+}
+
+function syncDebugGlobals() {
+  if (!window.__FIGHTING_DREAMERS__) {
+    return;
+  }
+
+  window.__FIGHTING_DREAMERS__.game = game;
+  window.__FIGHTING_DREAMERS__.activeAnimationStyleName = currentStylePair?.join('/') ?? '';
+  window.__FIGHTING_DREAMERS__.playerAnimationStyleName = player?.model?.animationStyleName ?? '';
+  window.__FIGHTING_DREAMERS__.opponentAnimationStyleName = opponent?.model?.animationStyleName ?? '';
 }
 
 async function loadSceneBackground(selectedBackground) {
@@ -314,10 +439,10 @@ function applyPose(combatant, time) {
   model.visual.position.copy(model.visual.userData.basePosition);
   model.visual.position.z = model.visual.userData.basePosition.z;
   model.root.position.y = 0.02;
-  model.root.position.z = 0;
   model.shadow.scale.set(1, 1, 0.48);
 
   setModelIntensity(model, flashColor);
+  cacheSideStepPose(model, state);
 
   switch (state.state) {
     case STATES.WALK_FORWARD:
@@ -326,6 +451,26 @@ function applyPose(combatant, time) {
       model.visual.rotation.z = Math.sin(time * 9) * 0.04 * facing;
       model.visual.position.z += Math.sin(time * 9) * 0.035;
       break;
+    case STATES.SIDE_STEP_LEFT:
+    case STATES.SIDE_STEP_RIGHT: {
+      const sideDirection = model.sideStepPose?.direction ?? (state.state === STATES.SIDE_STEP_RIGHT ? 1 : -1);
+      const step = smoothStep01(Math.sin(state.progress * Math.PI));
+      model.visual.position.z += 0.045 * step * sideDirection;
+      model.visual.position.x -= 0.025 * step * facing;
+      model.root.position.y += Math.abs(Math.sin(state.progress * Math.PI * 2)) * 0.012;
+      model.shadow.scale.set(0.98 + step * 0.04, 1, 0.46);
+      break;
+    }
+    case STATES.CHARGE_ATTACK: {
+      const charge = state.chargeLevel ?? 0;
+      const pulse = 0.5 + Math.sin(time * 24) * 0.5;
+      model.visual.rotation.z = -0.13 * facing * (0.35 + charge);
+      model.visual.position.x -= 0.08 * facing * (0.3 + charge);
+      model.visual.scale.x *= 1 + charge * 0.05 + pulse * charge * 0.025;
+      model.visual.scale.y *= 1 - charge * 0.035;
+      model.shadow.scale.x *= 1 + charge * 0.22;
+      break;
+    }
     case STATES.CROUCH:
       model.visual.scale.y *= 0.74;
       model.visual.scale.x *= 1.08;
@@ -369,6 +514,26 @@ function applyPose(combatant, time) {
       model.shadow.scale.x = 1.4;
       break;
   }
+
+  applyCodedAttackMotion(combatant);
+}
+
+function cacheSideStepPose(model, state) {
+  const isSideStep = state.state === STATES.SIDE_STEP_LEFT || state.state === STATES.SIDE_STEP_RIGHT;
+
+  if (!isSideStep) {
+    model.sideStepPose = null;
+    return;
+  }
+
+  if (model.sideStepPose?.state === state.state) {
+    return;
+  }
+
+  model.sideStepPose = {
+    state: state.state,
+    direction: state.state === STATES.SIDE_STEP_RIGHT ? 1 : -1,
+  };
 }
 
 function setModelIntensity(model, scalar) {
@@ -386,16 +551,62 @@ function setModelIntensity(model, scalar) {
   });
 }
 
+function applyCodedAttackMotion(combatant) {
+  const { model, state, facing } = combatant;
+
+  if (!state.attack) {
+    return;
+  }
+
+  const t = state.progress;
+  const windup = Math.sin(Math.min(t, 0.45) / 0.45 * Math.PI);
+  const snap = Math.sin(Math.min(Math.max(t - 0.12, 0), 0.34) / 0.34 * Math.PI);
+  const recovery = Math.sin(Math.max(t - 0.48, 0) / 0.52 * Math.PI);
+  const charge = state.attack.chargeLevel ?? 0;
+  const power = getPosePower(state.state) * (1 + charge * 0.4);
+
+  model.visual.rotation.z += (-0.08 * windup + 0.14 * snap - 0.05 * recovery) * facing * power;
+  model.visual.rotation.x += 0.03 * snap * power;
+  model.visual.scale.x *= 1 + snap * 0.055 * power;
+  model.visual.scale.y *= 1 - snap * 0.035 * power;
+  model.visual.position.x += (snap * 0.09 - windup * 0.045) * facing * power;
+  model.visual.position.z += Math.sin(t * Math.PI * 2) * 0.025 * power;
+  model.shadow.scale.x *= 1 + snap * 0.28 * power;
+
+  if (state.state === STATES.HURRICANE_KICK || state.state === STATES.ROUNDHOUSE) {
+    model.visual.rotation.y += Math.sin(t * Math.PI * 2.2) * 0.11 * facing;
+    model.visual.position.y += Math.sin(t * Math.PI) * 0.08;
+  }
+
+  if (state.state === STATES.HEAVY || state.state === STATES.JUMP_KICK) {
+    model.visual.position.x += Math.pow(snap, 2) * 0.12 * facing;
+  }
+}
+
+function getPosePower(stateName) {
+  if (stateName === STATES.HEAVY || stateName === STATES.JUMP_KICK || stateName === STATES.HURRICANE_KICK) {
+    return 1.2;
+  }
+
+  if (stateName === STATES.GRAB) {
+    return 0.7;
+  }
+
+  return 0.82;
+}
+
 function updateCamera(delta) {
   const center = (player.position.x + opponent.position.x) / 2;
+  const centerZ = (player.position.z + opponent.position.z) / 2;
   const distance = Math.abs(player.position.x - opponent.position.x);
+  const depthDistance = Math.abs(player.position.z - opponent.position.z);
   const aspect = Math.max(camera.aspect, 0.65);
   const horizontalNeed = distance / aspect;
-  const targetZ = THREE.MathUtils.clamp(4.85 + horizontalNeed * 1.18, 5.65, 7.45);
-  const targetY = THREE.MathUtils.clamp(1.95 + distance * 0.08, 2.05, 2.42);
+  const targetZ = THREE.MathUtils.clamp(4.85 + horizontalNeed * 1.18 + depthDistance * 0.42, 5.65, 7.55);
+  const targetY = THREE.MathUtils.clamp(1.95 + distance * 0.08 + depthDistance * 0.08, 2.05, 2.48);
   const targetFov = THREE.MathUtils.clamp(36 + distance * 1.9, 38, 45);
-  const targetPosition = tempCameraPosition.set(center * 0.5, targetY, targetZ);
-  const targetLookAt = tempCameraLookAt.set(center * 0.36, 1.08 + distance * 0.035, 0);
+  const targetPosition = tempCameraPosition.set(center * 0.5, targetY, targetZ + centerZ * 0.16);
+  const targetLookAt = tempCameraLookAt.set(center * 0.36, 1.08 + distance * 0.035, centerZ * 0.36);
   const positionAlpha = dampAlpha(7.6, delta);
   const lookAlpha = dampAlpha(9.2, delta);
 
@@ -418,6 +629,10 @@ const tempCameraLookAt = new THREE.Vector3();
 
 function dampAlpha(speed, delta) {
   return 1 - Math.exp(-speed * Math.min(delta, 1 / 20));
+}
+
+function smoothStep01(t) {
+  return t * t * (3 - 2 * t);
 }
 
 function constrainRootMotion(combatant) {
@@ -452,11 +667,11 @@ function createHud() {
         <small data-opponent-state></small>
       </section>
     </div>
-    <div class="style-label">STYLE: ${activeAnimationStyle.name}</div>
+    <div class="style-label" data-style-label>STYLE</div>
     <div class="center-message" data-message></div>
     <div class="event-log" data-events></div>
     <div class="controls">
-      <span>A/D: move</span><span>W/Space: jump</span><span>S: crouch</span><span>L: block</span><span>J: jab</span><span>K: kick</span><span>W+K: jump kick</span><span>H: hurricane</span><span>M: martelo</span><span>I: roundhouse</span><span>U: heavy</span><span>O: grab/break</span><span>R: reset</span>
+      <span>A/D: move</span><span>Q/E: sidestep</span><span>W/Space: jump</span><span>S: crouch</span><span>L: block</span><span>J: jab</span><span>K: kick</span><span>W+K: jump kick</span><span>H: hurricane</span><span>M: martelo</span><span>I: roundhouse</span><span>U: heavy</span><span>O: grab/break</span><span>R: reset</span>
     </div>
   `;
   document.body.append(root);
@@ -471,6 +686,7 @@ function createHud() {
     timer: root.querySelector('[data-timer]'),
     message: root.querySelector('[data-message]'),
     events: root.querySelector('[data-events]'),
+    styleLabel: root.querySelector('[data-style-label]'),
   };
 }
 
@@ -515,6 +731,10 @@ function createAnimationStyles() {
     stancejeetkundo: { name: 'jeetKuneDo', order: 3, clampFinal: false },
     stancefight: { name: 'fight', order: 4, clampFinal: false },
     stancecapoeira: { name: 'capoeira', order: 5, clampFinal: false },
+    capoeira: { name: 'ginga', order: 0, clampFinal: false },
+    'ginga variation 1': { name: 'gingaOne', order: 1, clampFinal: false },
+    'ginga variation 2': { name: 'gingaTwo', order: 2, clampFinal: false },
+    'ginga variation 3': { name: 'gingaThree', order: 3, clampFinal: false },
   };
   const actionByFile = {
     lpunch: 'jab',
@@ -543,6 +763,30 @@ function createAnimationStyles() {
     'death-standing-left': 'death-standing-left',
     'death-shield': 'death-shield',
     'death-twohand': 'death-twohand',
+    'victory-1': 'victory-1',
+    'victory-2': 'victory-2',
+    'victory-3': 'victory-3',
+    'victory-4': 'victory-4',
+    'victory-talk': 'victory-talk',
+    ram: 'heavy',
+    bencao: 'kick',
+    pontera: 'kick',
+    'martelo 2': 'marteloKick',
+    'martelo 3': 'marteloKick',
+    'meia lua de frente': 'roundhouse',
+    'meia lua de compasso': 'hurricaneKick',
+    'meia lua de compasso back': 'hurricaneKick',
+    armada: 'roundhouse',
+    'chapa-giratoria': 'heavy',
+    'chapa giratoria 2': 'heavy',
+    'chapa 2': 'jumpKick',
+    'queshada 1': 'roundhouse',
+    'queshada 2': 'roundhouse',
+    'rasteira 1': 'kick',
+    'rasteira 2': 'kick',
+    au: 'jump',
+    'au to role': 'jumpKick',
+    'macaco side': 'jumpKick',
   };
 
   Object.entries(animationModules)
@@ -563,7 +807,10 @@ function createAnimationStyles() {
         return;
       }
 
-      const actionName = actionByFile[fileKey] ?? fileName;
+      const actionName = actionByFile[fileKey];
+      if (!actionName) {
+        return;
+      }
       style.actions[actionName] = { load };
     });
 
@@ -583,30 +830,53 @@ function createEmptyAnimationStyle(name) {
 }
 
 function createAnimationStyleOptions() {
-  const completeStyles = Object.values(animationStyles).filter((style) => isCompleteAnimationStyle(style));
-  return completeStyles.length > 0 ? completeStyles : Object.values(animationStyles);
+  const playableStyles = Object.values(animationStyles).filter((style) => isPlayableAnimationStyle(style));
+  return playableStyles.length > 0 ? playableStyles : Object.values(animationStyles).filter((style) => style.stances.length > 0);
 }
 
-function isCompleteAnimationStyle(style) {
-  return style.stances.length > 0 && requiredAnimationActions.every((action) => Boolean(style.actions[action]));
+function isPlayableAnimationStyle(style) {
+  return style.name !== 'default' && style.stances.length > 0 && combatActionNamesForStyle(style).length > 0;
 }
 
-function selectAnimationStyle() {
+function combatActionNamesForStyle(style) {
+  return requiredAnimationActions.filter((action) => Boolean(style.actions[action]));
+}
+
+function animationSpeedForStyle(style) {
+  return animationSpeedByStyle[style.name] ?? 1;
+}
+
+function selectAnimationStylePair(avoidPair = null) {
   const requestedStyle = new URLSearchParams(window.location.search).get('style');
+  const requestedPlayerStyle = new URLSearchParams(window.location.search).get('p1style') ?? requestedStyle;
+  const requestedOpponentStyle = new URLSearchParams(window.location.search).get('p2style') ?? requestedStyle;
 
-  if (requestedStyle && animationStyles[requestedStyle] && isCompleteAnimationStyle(animationStyles[requestedStyle])) {
+  if (!requestedPlayerStyle && !requestedOpponentStyle && avoidPair && animationStyleOptions.length > 1) {
+    const stylePairs = animationStyleOptions.flatMap((playerStyle) =>
+      animationStyleOptions.map((opponentStyle) => [playerStyle, opponentStyle]),
+    );
+    const availablePairs = stylePairs.filter(([playerStyle, opponentStyle]) =>
+      playerStyle.name !== avoidPair[0] || opponentStyle.name !== avoidPair[1],
+    );
+    const pair = availablePairs[Math.floor(Math.random() * availablePairs.length)] ?? stylePairs[0];
+    return pair;
+  }
+
+  return [
+    selectAnimationStyle(requestedPlayerStyle),
+    selectAnimationStyle(requestedOpponentStyle),
+  ];
+}
+
+function selectAnimationStyle(requestedStyle = null) {
+  if (requestedStyle && animationStyles[requestedStyle] && isPlayableAnimationStyle(animationStyles[requestedStyle])) {
     return animationStyles[requestedStyle];
   }
 
-  if (animationStyles.boxing && isCompleteAnimationStyle(animationStyles.boxing)) {
-    return animationStyles.boxing;
-  }
-
-  if (animationStyleOptions.length === 0) {
-    return animationStyles.default ?? Object.values(animationStyles)[0] ?? createEmptyAnimationStyle('default');
-  }
-
-  return animationStyleOptions[Math.floor(Math.random() * animationStyleOptions.length)];
+  return animationStyleOptions[Math.floor(Math.random() * animationStyleOptions.length)]
+    ?? animationStyles.martial
+    ?? Object.values(animationStyles).find((style) => style.stances.length > 0)
+    ?? createEmptyAnimationStyle('default');
 }
 
 function animationStyleNameFromPath(path) {
@@ -623,9 +893,9 @@ function assetNameFromPath(path, extension) {
     .replace(new RegExp(`\\.${escapedExtension}$`, 'i'), '');
 }
 
-function randomStance() {
-  const randomStanceOptions = stanceOptions.filter((stance) => stance.name !== 'sumo');
-  const availableStances = randomStanceOptions.length > 0 ? randomStanceOptions : stanceOptions;
+function randomStance(style) {
+  const randomStanceOptions = style.stances.filter((stance) => stance.name !== 'sumo');
+  const availableStances = randomStanceOptions.length > 0 ? randomStanceOptions : style.stances;
   return availableStances[Math.floor(Math.random() * availableStances.length)];
 }
 
@@ -679,9 +949,21 @@ function createBackgroundOptions() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function createAnimationMap() {
+function sharedActionsFromDefault() {
+  const defaultActions = animationStyles.default?.actions ?? {};
+  return Object.fromEntries(
+    sharedAnimationActions
+      .filter((name) => defaultActions[name])
+      .map((name) => [name, defaultActions[name]]),
+  );
+}
+
+async function createAnimationMap(style) {
+  const inheritedActions = style.name === 'default'
+    ? style.actions
+    : { ...sharedActionsFromDefault(), ...style.actions };
   const entries = await Promise.all(
-    Object.entries(activeAnimationStyle.actions).map(async ([name, asset]) => [name, await resolveAssetUrl(asset)]),
+    Object.entries(inheritedActions).map(async ([name, asset]) => [name, await resolveAssetUrl(asset)]),
   );
   return Object.fromEntries(entries);
 }
@@ -722,7 +1004,14 @@ function updateAnimationAction(combatant) {
     combatant.reactionAnimation = null;
   }
 
-  const desiredAction = (canPlayReaction ? combatant.reactionAnimation : null) ?? combatant.state.animation ?? null;
+  const requestedAction = (canPlayReaction ? combatant.reactionAnimation : null) ?? combatant.state.animation ?? null;
+  const desiredAction = requestedAction && model.actions[requestedAction]?.action
+    ? requestedAction
+    : null;
+
+  if (requestedAction && !desiredAction) {
+    rememberMissingAnimation(model, requestedAction, combatant.state.state);
+  }
 
   if (model.currentActionName === desiredAction) {
     return;
@@ -735,23 +1024,41 @@ function updateAnimationAction(combatant) {
   model.currentActionName = desiredAction;
 
   if (desiredAction) {
-    const action = model.actions[desiredAction]?.action;
-    const clip = model.actions[desiredAction]?.clip;
+    const action = model.actions[desiredAction].action;
+    const clip = model.actions[desiredAction].clip;
 
-    if (action && clip) {
-      model.stanceAction?.fadeOut(0.06);
-      const targetDuration = desiredAction.startsWith('death')
-        ? clip.duration
-        : Math.max(combatant.reactionTimer || 0, combatant.state.duration);
-      action.timeScale = clip.duration / Math.max(targetDuration, 0.001);
-      action.reset().fadeIn(0.04).play();
-    }
+    model.stanceAction?.fadeOut(0.06);
+    const targetDuration = desiredAction.startsWith('death') || desiredAction.startsWith('victory')
+      ? clip.duration
+      : Math.max(combatant.reactionTimer || 0, combatant.state.duration);
+    action.timeScale = (clip.duration / Math.max(targetDuration, 0.001)) * (model.animationSpeed ?? 1);
+    action.reset().fadeIn(0.04).play();
   } else {
-    holdStanceFinalFrame(model);
+    playStanceFallback(model);
   }
 }
 
-function holdStanceFinalFrame(model) {
+function rememberMissingAnimation(model, actionName, stateName) {
+  const key = `${model.animationStyleName ?? 'unknown'}:${stateName}:${actionName}`;
+
+  if (!model.missingAnimationKeys) {
+    model.missingAnimationKeys = new Set();
+    model.missingAnimations = [];
+  }
+
+  if (model.missingAnimationKeys.has(key)) {
+    return;
+  }
+
+  model.missingAnimationKeys.add(key);
+  model.missingAnimations.push({
+    style: model.animationStyleName ?? 'unknown',
+    state: stateName,
+    action: actionName,
+  });
+}
+
+function playStanceFallback(model) {
   const action = model.stanceAction;
   const clip = model.stanceClip;
 
@@ -760,12 +1067,14 @@ function holdStanceFinalFrame(model) {
   }
 
   action.enabled = true;
+  action.setEffectiveWeight(1);
   action.paused = Boolean(model.stanceClampFinal);
 
   if (model.stanceClampFinal) {
     action.time = clip.duration;
+  } else if (!action.isRunning()) {
+    action.reset().fadeIn(0.08).play();
   }
 
-  action.setEffectiveWeight(1);
   action.play();
 }
